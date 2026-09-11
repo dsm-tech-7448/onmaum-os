@@ -1,0 +1,49 @@
+{
+  "name": "onmaum-os-web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint",
+    "db:generate": "drizzle-kit generate",
+    "db:push": "drizzle-kit push",
+    "db:studio": "drizzle-kit studio",
+    "db:seed": "tsx --env-file=.env.local scripts/seed.ts",
+    "db:reset-admin-password": "tsx --env-file=.env.local scripts/reset-admin-password.ts",
+    "db:seed-project-stages": "tsx --env-file=.env.local scripts/seed-project-stages.ts",
+    "db:seed-customers-suppliers": "tsx --env-file=.env.local scripts/seed-customers-suppliers.ts",
+    "db:seed-option-master": "tsx --env-file=.env.local scripts/seed-option-master.ts",
+    "db:backup": "tsx --env-file=.env.local scripts/backup.ts",
+    "compute-peak-season": "tsx --env-file=.env.local scripts/compute-peak-season.ts"
+  },
+  "dependencies": {
+    "bcryptjs": "^3.0.3",
+    "drizzle-orm": "^0.45.2",
+    "html2canvas": "^1.4.1",
+    "jose": "^6.2.9",
+    "next": "16.3.1",
+    "popbill": "^1.64.2",
+    "postgres": "^3.4.9",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "server-only": "^0.0.1",
+    "xlsx": "^0.18.5",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4",
+    "@types/bcryptjs": "^2.4.6",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "dotenv": "^17.4.2",
+    "drizzle-kit": "^0.31.10",
+    "eslint": "^9",
+    "eslint-config-next": "16.3.1",
+    "tailwindcss": "^4",
+    "tsx": "^4.23.12",
+    "typescript": "^5"
+  }
+}
