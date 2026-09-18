@@ -1,0 +1,321 @@
+/* 거래명세서 미리보기 — 국세청 세금계산서 특유의 박스형 구조(등록번호 칸칸이, 공급자/
+   공급받는자 박스)를 참고하되, 색상은 다른 문서와 같은 머룬(#8e1f3b) 브랜드를 쓴다.
+   공급받는자는 상호 한 줄뿐이라 공급자와 나란히 두어 균형을 맞춘다. */
+
+.statement-doc {
+  width: 794px;
+  min-height: 1123px;
+  background: #fff;
+  padding: 32px 36px;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.15);
+  font-family: "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;
+  color: #222;
+  font-size: 16px;
+}
+
+.statement-doc .ci-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  border-bottom: 4px solid #8e1f3b;
+  padding-bottom: 12px;
+  margin-bottom: 14px;
+}
+.statement-doc .ci-spacer {
+  width: 150px;
+}
+.statement-doc .ci-title {
+  text-align: center;
+}
+.statement-doc .ci-title h1 {
+  font-size: 32px;
+  letter-spacing: 8px;
+  margin: 0;
+}
+.statement-doc .ci-title p {
+  font-size: 15px;
+  letter-spacing: 3px;
+  color: #999;
+  margin: 2px 0 0;
+}
+.statement-doc .ci-title p.doc-tag {
+  font-size: 11px;
+  letter-spacing: 1px;
+  color: #8e1f3b;
+  margin-top: 3px;
+}
+.statement-doc .doc-no-box {
+  width: 150px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  font-size: 11px;
+  overflow: hidden;
+}
+.statement-doc .doc-no-box .k {
+  display: block;
+  background: #f7eef1;
+  color: #8e1f3b;
+  font-weight: bold;
+  padding: 3px 6px;
+}
+.statement-doc .doc-no-box .v {
+  display: block;
+  padding: 3px 6px;
+  border-bottom: 1px solid #eee;
+}
+.statement-doc .doc-no-box .v:last-child {
+  border-bottom: none;
+}
+
+.statement-doc .party-row {
+  display: flex;
+  align-items: stretch;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.statement-doc .stacked-box {
+  display: flex;
+  border: 1px solid #8e1f3b;
+  border-radius: 4px;
+  overflow: hidden;
+}
+.statement-doc .stacked-box.narrow {
+  flex: 2;
+  min-width: 0;
+}
+.statement-doc .stacked-box.wide {
+  flex: 3;
+  min-width: 0;
+}
+.statement-doc .stacked-box .vlabel {
+  flex-shrink: 0;
+  width: 32px;
+  background: #f7eef1;
+  color: #8e1f3b;
+  font-weight: bold;
+  font-size: 14px;
+  letter-spacing: 2px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  writing-mode: vertical-rl;
+  text-orientation: upright;
+  border-right: 1px solid #8e1f3b;
+}
+.statement-doc .stacked-box .body {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  padding: 2px 14px;
+}
+.statement-doc .stacked-box .body.centered {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+.statement-doc .stacked-box .row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 0;
+  border-bottom: 1px solid #eee;
+  font-size: 13px;
+}
+.statement-doc .stacked-box .row:last-child {
+  border-bottom: none;
+}
+.statement-doc .stacked-box .row .k {
+  flex-shrink: 0;
+  width: 62px;
+  font-weight: bold;
+  color: #8e1f3b;
+  white-space: nowrap;
+}
+.statement-doc .stacked-box .row .v {
+  flex: 1;
+  min-width: 0;
+  color: #222;
+  overflow-wrap: break-word;
+}
+.statement-doc .stacked-box .seal-img {
+  position: absolute;
+  right: 14px;
+  top: 4px;
+  width: 70px;
+  height: 70px;
+  z-index: 1;
+}
+
+.statement-doc .amount-banner {
+  display: flex;
+  background: #8e1f3b;
+  color: #fff;
+  border-radius: 4px;
+  overflow: hidden;
+  margin-bottom: 14px;
+}
+.statement-doc .amount-banner .lbl {
+  padding: 9px 16px;
+  font-weight: bold;
+  font-size: 16px;
+  line-height: normal;
+  background: #7a1a32;
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+.statement-doc .amount-banner .krw {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  font-weight: bold;
+  line-height: normal;
+  background: #fff;
+  color: #222;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.statement-doc .amount-banner .num {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 4px 16px;
+  font-size: 21px;
+  font-weight: bold;
+  line-height: normal;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.statement-doc table.items {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+  margin-bottom: 12px;
+  table-layout: fixed;
+}
+.statement-doc table.items th {
+  background: #8e1f3b;
+  color: #fff;
+  padding: 7px 3px;
+  font-size: 14px;
+}
+.statement-doc table.items td {
+  padding: 6px 3px;
+  text-align: center;
+  border-bottom: 1px solid #eee;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.statement-doc table.items td.itemname,
+.statement-doc table.items td.code {
+  text-align: left;
+  padding-left: 6px;
+}
+.statement-doc table.items tr.total-row td {
+  background: #f6dee4;
+  font-weight: bold;
+  color: #8e1f3b;
+}
+
+.statement-doc .summary-strip {
+  display: flex;
+  border: 1px solid #d8d8d8;
+  border-radius: 4px;
+  overflow: hidden;
+  margin-bottom: 12px;
+}
+.statement-doc .summary-strip .cell {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  border-right: 1px solid #d8d8d8;
+}
+.statement-doc .summary-strip .cell:last-child {
+  border-right: none;
+}
+.statement-doc .summary-strip .k {
+  width: 100%;
+  background: #f7eef1;
+  color: #8e1f3b;
+  font-weight: bold;
+  font-size: 12px;
+  text-align: center;
+  padding: 4px 0;
+}
+.statement-doc .summary-strip .v {
+  width: 100%;
+  min-height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: bold;
+  padding: 4px 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.statement-doc .account-box {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid #8e1f3b;
+  background: #fdf6f8;
+  border-radius: 4px;
+  padding: 9px 14px;
+  font-size: 15px;
+  margin-bottom: 12px;
+}
+.statement-doc .account-box .ttl {
+  font-weight: bold;
+  color: #8e1f3b;
+  flex-shrink: 0;
+}
+.statement-doc .account-box .v {
+  font-weight: bold;
+  color: #222;
+}
+
+.statement-doc .note-box {
+  background: #f7f7f7;
+  border-radius: 4px;
+  padding: 12px 14px;
+  font-size: 15px;
+  line-height: 1.7;
+  white-space: pre-line;
+  margin-bottom: 16px;
+}
+.statement-doc .note-box .ttl {
+  font-weight: bold;
+  margin-bottom: 4px;
+  font-size: 15px;
+  color: #8e1f3b;
+}
+
+.statement-doc .doc-footer {
+  border-top: 1px solid #ddd;
+  padding-top: 12px;
+  margin-top: auto;
+}
+.statement-doc .doc-footer table {
+  font-size: 13px;
+  border-collapse: collapse;
+}
+.statement-doc .doc-footer table td {
+  padding: 3px 7px;
+}
+.statement-doc .doc-footer table td.k {
+  color: #888;
+  width: 120px;
+}

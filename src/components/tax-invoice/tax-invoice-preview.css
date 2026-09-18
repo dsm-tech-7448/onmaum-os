@@ -1,0 +1,141 @@
+/* 거래명세서 미리보기 CSS(statement-preview.css)와 같은 시각 언어, .tax-invoice-doc으로 스코프. */
+
+.tax-invoice-doc {
+  width: 794px;
+  min-height: 1123px;
+  background: #fff;
+  padding: 32px 36px;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.15);
+  font-family: "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;
+  color: #222;
+  font-size: 16px;
+}
+
+.tax-invoice-doc .ci-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  border-bottom: 4px solid #8e1f3b;
+  padding-bottom: 12px;
+  margin-bottom: 14px;
+}
+.tax-invoice-doc .ci-header img.logo {
+  height: 50px;
+}
+.tax-invoice-doc .ci-title {
+  text-align: center;
+}
+.tax-invoice-doc .ci-title h1 {
+  font-size: 32px;
+  letter-spacing: 8px;
+  margin: 0;
+}
+.tax-invoice-doc .ci-title p {
+  font-size: 15px;
+  letter-spacing: 3px;
+  color: #999;
+  margin: 2px 0 0;
+}
+.tax-invoice-doc .status-badge {
+  display: inline-block;
+  border-radius: 4px;
+  padding: 3px 10px;
+  font-size: 13px;
+  font-weight: bold;
+  margin-top: 6px;
+}
+
+.tax-invoice-doc .info-table {
+  border-collapse: collapse;
+  font-size: 16px;
+  width: 100%;
+  margin-bottom: 12px;
+}
+.tax-invoice-doc .info-table td {
+  border: 1px solid #ddd;
+  padding: 6px 12px;
+  vertical-align: middle;
+}
+.tax-invoice-doc .info-table td.k {
+  background: #f7eef1;
+  font-weight: bold;
+  color: #8e1f3b;
+  width: 110px;
+  white-space: nowrap;
+}
+.tax-invoice-doc .sealcell {
+  position: relative;
+}
+.tax-invoice-doc .sealcell .seal-img {
+  width: 62px;
+  position: absolute;
+  left: 270px;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+.tax-invoice-doc table.items {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+  margin-bottom: 12px;
+  table-layout: fixed;
+}
+.tax-invoice-doc table.items th {
+  background: #8e1f3b;
+  color: #fff;
+  padding: 7px 3px;
+  font-size: 14px;
+}
+.tax-invoice-doc table.items td {
+  padding: 6px 3px;
+  text-align: center;
+  border-bottom: 1px solid #eee;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tax-invoice-doc table.items td.itemname,
+.tax-invoice-doc table.items td.code {
+  text-align: left;
+  padding-left: 6px;
+}
+.tax-invoice-doc table.items tr.total-row td {
+  background: #f6dee4;
+  font-weight: bold;
+  color: #8e1f3b;
+}
+
+.tax-invoice-doc .note-box {
+  background: #f7f7f7;
+  border-radius: 4px;
+  padding: 12px 14px;
+  font-size: 15px;
+  line-height: 1.7;
+  white-space: pre-line;
+  margin-bottom: 16px;
+}
+.tax-invoice-doc .note-box .ttl {
+  font-weight: bold;
+  margin-bottom: 4px;
+  font-size: 15px;
+  color: #8e1f3b;
+}
+
+.tax-invoice-doc .doc-footer {
+  border-top: 1px solid #ddd;
+  padding-top: 12px;
+  margin-top: auto;
+}
+.tax-invoice-doc .doc-footer table {
+  font-size: 13px;
+  border-collapse: collapse;
+}
+.tax-invoice-doc .doc-footer table td {
+  padding: 3px 7px;
+}
+.tax-invoice-doc .doc-footer table td.k {
+  color: #888;
+  width: 120px;
+}
