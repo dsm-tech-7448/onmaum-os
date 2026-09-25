@@ -1,0 +1,234 @@
+/* 온마음_문서생성기_통합.html의 발주서(PO) 미리보기 CSS를 .po-doc 아래로 이식.
+   quote-preview.css의 .quote-doc과 같은 시각 언어지만 이 라우트에서만 쓰도록 분리 스코프. */
+
+.po-doc {
+  width: 794px;
+  min-height: 1123px;
+  background: #fff;
+  padding: 32px 36px;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.15);
+  font-family: "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;
+  color: #222;
+  font-size: 16px;
+}
+
+.po-doc .ci-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  border-bottom: 4px solid #8e1f3b;
+  padding-bottom: 12px;
+  margin-bottom: 14px;
+}
+.po-doc .ci-header img.logo {
+  height: 50px;
+  align-self: flex-end;
+}
+.po-doc .ci-title {
+  text-align: center;
+}
+.po-doc .ci-title h1 {
+  font-size: 32px;
+  letter-spacing: 8px;
+  margin: 0;
+}
+.po-doc .ci-title p {
+  font-size: 15px;
+  letter-spacing: 3px;
+  color: #999;
+  margin: 2px 0 0;
+}
+
+.po-doc .party-boxes {
+  display: flex;
+  gap: 14px;
+  margin-bottom: 14px;
+}
+.po-doc .party-box {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid #d8d8d8;
+  border-radius: 6px;
+  overflow: hidden;
+}
+.po-doc .party-box .hd {
+  background: #8e1f3b;
+  color: #fff;
+  font-weight: bold;
+  font-size: 14px;
+  text-align: center;
+  padding: 7px 0;
+  letter-spacing: 1px;
+}
+.po-doc .party-box .body {
+  padding: 2px 14px;
+}
+.po-doc .party-box .row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 7px 0;
+  border-bottom: 1px solid #eee;
+  font-size: 14px;
+}
+.po-doc .party-box .row.last {
+  border-bottom: none;
+}
+.po-doc .party-box .row .k {
+  flex-shrink: 0;
+  width: 68px;
+  font-weight: bold;
+  color: #8e1f3b;
+  white-space: nowrap;
+}
+.po-doc .party-box .row .v {
+  flex: 1;
+  min-width: 0;
+  color: #222;
+  overflow-wrap: break-word;
+}
+.po-doc .party-box .row.highlight {
+  background: #fdecc8;
+  margin: 0 -14px;
+  padding: 7px 14px;
+}
+.po-doc .party-box .row.highlight .k {
+  color: #b45309;
+}
+.po-doc .party-box .row.highlight .v {
+  color: #dc2626;
+  font-weight: bold;
+}
+
+.po-doc .amount-banner {
+  display: flex;
+  background: #8e1f3b;
+  color: #fff;
+  border-radius: 4px;
+  overflow: hidden;
+  margin-bottom: 14px;
+}
+.po-doc .amount-banner .lbl {
+  padding: 9px 16px;
+  font-weight: bold;
+  font-size: 16px;
+  line-height: normal;
+  background: #7a1a32;
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+.po-doc .amount-banner .krw {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  font-weight: bold;
+  line-height: normal;
+  background: #fff;
+  color: #222;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.po-doc .amount-banner .num {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 4px 16px;
+  font-size: 21px;
+  font-weight: bold;
+  line-height: normal;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.po-doc table.items {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+  margin-bottom: 12px;
+  table-layout: fixed;
+}
+.po-doc table.items th {
+  background: #8e1f3b;
+  color: #fff;
+  padding: 7px 3px;
+  font-size: 14px;
+}
+.po-doc table.items td {
+  padding: 6px 3px;
+  text-align: center;
+  border-bottom: 1px solid #eee;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.po-doc table.items td.itemname {
+  text-align: left;
+  padding-left: 6px;
+}
+.po-doc table.items tr.total-row td {
+  background: #f6dee4;
+  font-weight: bold;
+  color: #8e1f3b;
+}
+
+.po-doc .note-box {
+  background: #f7f7f7;
+  border-radius: 4px;
+  padding: 12px 14px;
+  font-size: 15px;
+  line-height: 1.7;
+  white-space: pre-line;
+  margin-bottom: 16px;
+}
+.po-doc .note-box .ttl {
+  font-weight: bold;
+  margin-bottom: 4px;
+  font-size: 15px;
+  color: #8e1f3b;
+}
+.po-doc .note-box.numbered-notes p {
+  margin: 0 0 4px;
+}
+.po-doc .note-box.numbered-notes .num {
+  font-weight: bold;
+  color: #8e1f3b;
+}
+.po-doc .note-box.numbered-notes p.sub {
+  padding-left: 12px;
+  color: #444;
+}
+.po-doc .note-box.numbered-notes .note-body {
+  white-space: pre-line;
+  padding-left: 4px;
+}
+
+.po-doc .doc-footer {
+  border-top: 1px solid #ddd;
+  padding-top: 12px;
+  margin-top: auto;
+}
+.po-doc .doc-footer table {
+  font-size: 13px;
+  border-collapse: collapse;
+}
+.po-doc .doc-footer table td {
+  padding: 3px 7px;
+}
+.po-doc .doc-footer table td.k {
+  color: #888;
+  width: 120px;
+}
+.po-doc .doc-footer p.po-no {
+  margin: 8px 0 0;
+  text-align: right;
+  font-size: 12px;
+  font-weight: bold;
+  letter-spacing: 0.5px;
+  color: #8e1f3b;
+}
