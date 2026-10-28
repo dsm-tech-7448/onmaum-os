@@ -1,0 +1,304 @@
+/* 온마음_문서생성기_통합.html의 미리보기(#preview) 관련 CSS를 .quote-doc 아래로 그대로 이식.
+   다른 페이지의 유틸리티 클래스(.footer 등)와 충돌하지 않도록 전부 .quote-doc으로 스코프. */
+
+.quote-doc {
+  width: 794px;
+  min-height: 1123px;
+  background: #fff;
+  padding: 32px 36px;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.15);
+  font-family: "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;
+  color: #222;
+  font-size: 17px;
+}
+
+.quote-doc .ci-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  border-bottom: 4px solid #8e1f3b;
+  padding-bottom: 12px;
+  margin-bottom: 14px;
+}
+.quote-doc .ci-header img.logo {
+  height: 40px;
+  align-self: flex-end;
+}
+.quote-doc .ci-title {
+  text-align: center;
+}
+.quote-doc .ci-title h1 {
+  font-size: 34px;
+  font-weight: bold;
+  letter-spacing: 9px;
+  margin: 0;
+}
+.quote-doc .ci-title p {
+  font-size: 16px;
+  letter-spacing: 3px;
+  color: #999;
+  margin: 2px 0 0;
+}
+.quote-doc .top-info {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 12px;
+  gap: 10px;
+}
+.quote-doc .customer-block p.to {
+  font-size: 23px;
+  font-weight: bold;
+  margin: 0 0 3px;
+}
+.quote-doc .customer-block p.desc {
+  font-size: 17px;
+  color: #555;
+  margin: 0;
+}
+.quote-doc .meta-table {
+  border-collapse: collapse;
+  font-size: 17px;
+  margin-bottom: 12px;
+}
+.quote-doc .meta-table td {
+  border: 1px solid #ddd;
+  padding: 6px 12px;
+  vertical-align: middle;
+  line-height: normal;
+}
+.quote-doc .meta-table td.k {
+  background: #f7eef1;
+  font-weight: bold;
+  color: #8e1f3b;
+  width: 110px;
+  white-space: nowrap;
+}
+.quote-doc .amount-banner {
+  display: flex;
+  background: #8e1f3b;
+  color: #fff;
+  border-radius: 4px;
+  overflow: hidden;
+  margin-bottom: 14px;
+}
+.quote-doc .amount-banner .lbl {
+  padding: 9px 16px;
+  font-weight: bold;
+  font-size: 16px;
+  line-height: normal;
+  background: #7a1a32;
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+.quote-doc .amount-banner .krw {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  font-weight: bold;
+  line-height: normal;
+  background: #fff;
+  color: #222;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.quote-doc .amount-banner .num {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 4px 16px;
+  font-size: 21px;
+  font-weight: bold;
+  line-height: normal;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+.quote-doc table.items {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 15px;
+  margin-bottom: 12px;
+  table-layout: fixed;
+}
+.quote-doc table.items th {
+  background: #8e1f3b;
+  color: #fff;
+  padding: 7px 3px;
+  font-size: 15px;
+}
+.quote-doc table.items td {
+  padding: 6px 3px;
+  text-align: center;
+  vertical-align: middle;
+  line-height: normal;
+  border-bottom: 1px solid #eee;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.quote-doc table.items td.itemname,
+.quote-doc table.items td.code {
+  text-align: left;
+  padding-left: 6px;
+}
+.quote-doc .imgsec {
+  margin-bottom: 14px;
+}
+.quote-doc .imgsec .ttl {
+  font-size: 17px;
+  font-weight: bold;
+  color: #8e1f3b;
+  margin-bottom: 7px;
+}
+.quote-doc .imgsec .grid {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.quote-doc .imgsec .item {
+  width: auto;
+  text-align: center;
+}
+.quote-doc .imgsec .item img {
+  height: 100px;
+  width: auto;
+  border-radius: 6px;
+  border: 1px solid #ddd;
+}
+.quote-doc .imgsec .item .cap {
+  font-size: 14px;
+  margin-top: 4px;
+}
+.quote-doc .bottom {
+  display: flex;
+  gap: 14px;
+  margin-bottom: 16px;
+  /* 확인사항 박스와 합계 표(공급가액/부가세/합계금액)의 아래쪽 줄을 맞춘다(2026-10-23) — 둘 중 더 높은
+     쪽에 다른 쪽이 늘어나 맞춰진다. 합계 표는 아래에서 컴팩트하게 줄여 확인사항이 짧을 때 전체 높이를
+     덜 차지한다(품목이 많아 A4에 맞추려 축소될 때 글자가 작아지는 것을 줄이려는 목적). */
+  align-items: stretch;
+}
+.quote-doc .confirm-box {
+  flex: 1;
+  background: #f7f7f7;
+  border-radius: 4px;
+  padding: 12px 14px;
+  font-size: 16px;
+  line-height: 1.7;
+  white-space: pre-line;
+}
+.quote-doc .confirm-box .ttl {
+  font-weight: bold;
+  margin-bottom: 4px;
+  font-size: 16px;
+  color: #8e1f3b;
+}
+.quote-doc .summary-table {
+  width: 310px;
+  border-collapse: collapse;
+  font-size: 17px;
+}
+.quote-doc .summary-table td {
+  border: 1px solid #ddd;
+  padding: 8px 12px;
+  vertical-align: middle;
+  line-height: normal;
+}
+.quote-doc .summary-table td.k {
+  background: #f7eef1;
+  font-weight: bold;
+}
+.quote-doc .summary-table tr.total td {
+  background: #8e1f3b;
+  color: #fff;
+  font-size: 17px;
+  font-weight: bold;
+}
+.quote-doc .doc-footer {
+  border-top: 1px solid #ddd;
+  padding-top: 12px;
+  margin-top: auto;
+}
+.quote-doc .doc-footer table {
+  width: 100%;
+  font-size: 14px;
+  border-collapse: collapse;
+}
+.quote-doc .doc-footer table td {
+  padding: 3px 7px;
+  vertical-align: middle;
+  line-height: normal;
+  word-break: keep-all;
+}
+.quote-doc .doc-footer table td.k {
+  color: #888;
+  width: 120px;
+  white-space: nowrap;
+}
+
+/* 품목이 많은 견적서(줄 수 13 이상, quote-preview.tsx가 .dense를 붙임) — 내보낼 때 A4 한 장에 맞추려
+   전체가 축소되면 글자가 작아져 읽기 어렵다(2026-10-23, SWS-Korea 건). 줄 간격·여백만 줄여 같은 내용을
+   더 크게 인쇄한다 — 글자 크기·내용은 그대로. */
+.quote-doc.dense {
+  padding: 24px 36px;
+}
+.quote-doc.dense .ci-header {
+  padding-bottom: 8px;
+  margin-bottom: 8px;
+}
+.quote-doc.dense .top-info {
+  margin-bottom: 8px;
+}
+.quote-doc.dense .meta-table {
+  margin-bottom: 4px;
+}
+.quote-doc.dense .meta-table td {
+  padding: 2px 12px 4px;
+}
+.quote-doc.dense .amount-banner {
+  margin-bottom: 8px;
+}
+.quote-doc.dense table.items {
+  margin-bottom: 8px;
+}
+.quote-doc.dense table.items th {
+  padding: 4px 3px;
+}
+.quote-doc.dense table.items td {
+  padding: 2px 3px 4px;
+  /* PNG 내보내기(html2canvas)는 글자를 DOM보다 몇 px 아래에 그려서, 여백을 줄인 줄에서 overflow:hidden이
+     글자 아래쪽을 잘라 "아래로 쏠리고 깨져 보이는" 문제가 있었다(2026-10-27). 컴팩트 모드에서는 잘림을 끈다. */
+  overflow: visible;
+}
+.quote-doc.dense .imgsec {
+  margin-bottom: 8px;
+}
+.quote-doc.dense .imgsec .ttl {
+  margin-bottom: 4px;
+}
+.quote-doc.dense .bottom {
+  margin-bottom: 8px;
+}
+.quote-doc.dense .summary-table td {
+  /* 위쪽보다 아래쪽 여백을 크게 — PNG에서 글자가 아래로 쏠려도 칸 안에 들어오게(2026-10-27) */
+  padding: 4px 12px 9px;
+}
+.quote-doc.dense .confirm-box {
+  padding: 8px 14px;
+  line-height: 1.5;
+}
+.quote-doc.dense .doc-footer {
+  padding-top: 6px;
+}
+.quote-doc.dense .doc-footer table td {
+  padding: 0 7px 4px;
+}
+.quote-doc.dense .doc-footer table img {
+  width: 56px !important;
+  margin-top: 0 !important;
+}
