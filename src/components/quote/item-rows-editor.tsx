@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import type { QuoteItemDraft } from "@/lib/quotes/types";
 
 let uidCounter = 0;
@@ -42,15 +43,30 @@ export function ItemRowsEditor({
   productNames,
   optionNames,
   listId,
+  allowLump = false,
 }: {
   items: QuoteItemDraft[];
   onChange: (items: QuoteItemDraft[]) => void;
   productNames: string[];
   optionNames: string[];
   listId: string;
+  // 발주서 전용(2026-10-29) — 견적서의 "통합비용"과 같다: 켜면 단가 대신 금액 하나를 직접 입력하고
+  // (수량은 표시용), 저장 값은 supplyOverride. 거래명세서 등 다른 화면은 켜지 않는다.
+  allowLump?: boolean;
 }) {
   function update(uid: string, field: keyof QuoteItemDraft, value: string) {
     onChange(items.map((it) => (it.uid === uid ? { ...it, [field]: value } : it)));
+  }
+  // 이번 화면에서 직접 켠 줄만 단가 입력을 잠근다. 이미 저장된 줄(금액 값 있음)은 체크만 켜진 채 단가도 고칠 수 있다.
+  const [lumpUids, setLumpUids] = useState<Set<string>>(new Set());
+  function toggleLump(it: QuoteItemDraft, on: boolean) {
+    setLumpUids((prev) => {
+      const next = new Set(prev);
+      if (on) next.add(it.uid);
+      else next.delete(it.uid);
+      return next;
+    });
+    onChange(items.map((x) => (x.uid === it.uid ? (on ? { ...x, price: "" } : { ...x, supplyOverride: "" }) : x)));
   }
   function remove(uid: string) {
     onChange(items.filter((it) => it.uid !== uid));
@@ -104,8 +120,8 @@ export function ItemRowsEditor({
 
         <div className="flex flex-col gap-1">
         {items.map((it) => (
+          <div key={it.uid} className="flex flex-col gap-1">
           <div
-            key={it.uid}
             className="grid items-center gap-1"
             style={{ gridTemplateColumns: columnWidths, minWidth: "max-content" }}
           >
@@ -147,6 +163,7 @@ export function ItemRowsEditor({
               type="number"
               placeholder="단가"
               value={it.price}
+              disabled={lumpUids.has(it.uid)}
               onChange={(e) => update(it.uid, "price", e.target.value)}
             />
             <div className="flex gap-0.5">
@@ -172,6 +189,30 @@ export function ItemRowsEditor({
                 ×
               </button>
             </div>
+          </div>
+          {allowLump && (
+            <div className="ml-[48px] flex items-center gap-1.5 text-[10px] text-neutral-500">
+              <label className="flex cursor-pointer items-center gap-1">
+                <input
+                  type="checkbox"
+                  className="h-3 w-3"
+                  checked={lumpUids.has(it.uid) || !!it.supplyOverride}
+                  onChange={(e) => toggleLump(it, e.target.checked)}
+                />
+                <span>통합비용 (단가 대신 금액 직접입력, 수량은 표시용)</span>
+              </label>
+              {(lumpUids.has(it.uid) || !!it.supplyOverride) && (
+                <input
+                  className={inputCls}
+                  type="number"
+                  placeholder="공급가 금액"
+                  value={it.supplyOverride ?? ""}
+                  onChange={(e) => update(it.uid, "supplyOverride", e.target.value)}
+                  style={{ width: 110 }}
+                />
+              )}
+            </div>
+          )}
           </div>
         ))}
         </div>

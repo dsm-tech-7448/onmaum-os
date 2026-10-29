@@ -204,6 +204,7 @@ function toItemDraft(row: typeof poItems.$inferSelect): PoItemDraft {
     unit: row.unit ?? "개",
     qty: row.qty ?? "",
     price: row.price ?? "",
+    supplyOverride: row.supplyOverride ?? "",
     quoteItemId: row.quoteItemId,
   };
 }
@@ -434,6 +435,7 @@ export async function updatePO(projectId: string, poId: string, draft: PoDraft):
         unit: it.unit || "개",
         qty: it.qty || null,
         price: it.price || null,
+        supplyOverride: it.supplyOverride || null,
         sortOrder: idx,
       };
       if (existingIds.has(it.uid)) {
@@ -554,6 +556,7 @@ export async function savePO(
       unit: it.unit || "개",
       qty: it.qty || null,
       price: it.price || null,
+      supplyOverride: it.supplyOverride || null,
       sortOrder: idx,
     }));
 

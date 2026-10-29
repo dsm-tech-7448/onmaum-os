@@ -150,12 +150,14 @@ export async function getSummaryRows(options?: { includeHistorical?: boolean }):
           name: poItems.name,
           qty: poItems.qty,
           price: poItems.price,
+          supplyOverride: poItems.supplyOverride,
         })
         .from(poItems)
         .where(inArray(poItems.poId, poIds))
     : [];
-  function poLineAmount(l: { qty: string | null; price: string | null }): number {
-    return Number(l.qty ?? 0) * Number(l.price ?? 0);
+  function poLineAmount(l: { qty: string | null; price: string | null; supplyOverride: string | null }): number {
+    // 통합비용 줄은 수량×단가 대신 직접 입력한 금액이 공급가다.
+    return l.supplyOverride != null ? Number(l.supplyOverride) : Number(l.qty ?? 0) * Number(l.price ?? 0);
   }
   const costByPoId = new Map<string, number>();
   const namesByPoId = new Map<string, string[]>();

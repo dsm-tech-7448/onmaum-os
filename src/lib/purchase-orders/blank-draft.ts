@@ -17,7 +17,7 @@ export function blankPoDraft(poNumber: string): PoDraft {
     shipAddr: "",
     shipReceiver: "",
     note: "",
-    requestNote: "- 발송자를 온마음기프트로 기재 요망\n- 송장번호 통보요망",
+    requestNote: "- 발송자를 온마음기프트(010-9019-8711)로 기재 요망\n- 송장번호 통보요망",
     paidAmount: "",
     paidDate: "",
     items: [],

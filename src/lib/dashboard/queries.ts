@@ -348,7 +348,7 @@ export async function getUnpaidSuppliers(): Promise<UnpaidSupplier[]> {
   if (candidates.length === 0) return [];
 
   const items = await db
-    .select({ poId: poItems.poId, qty: poItems.qty, price: poItems.price })
+    .select({ poId: poItems.poId, qty: poItems.qty, price: poItems.price, supplyOverride: poItems.supplyOverride })
     .from(poItems)
     .where(
       inArray(
@@ -358,7 +358,8 @@ export async function getUnpaidSuppliers(): Promise<UnpaidSupplier[]> {
     );
   const amountByPo = new Map<string, number>();
   for (const it of items) {
-    amountByPo.set(it.poId, (amountByPo.get(it.poId) ?? 0) + Number(it.qty ?? 0) * Number(it.price ?? 0));
+    const lineAmt = it.supplyOverride != null ? Number(it.supplyOverride) : Number(it.qty ?? 0) * Number(it.price ?? 0);
+    amountByPo.set(it.poId, (amountByPo.get(it.poId) ?? 0) + lineAmt);
   }
 
   return candidates.map((c) => ({

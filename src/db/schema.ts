@@ -504,6 +504,7 @@ export const poItems = pgTable("po_items", {
   unit: varchar("unit", { length: 20 }).default("개"),
   qty: numeric("qty", { precision: 12, scale: 2 }),
   price: numeric("price", { precision: 12, scale: 2 }),
+  supplyOverride: numeric("supply_override", { precision: 12, scale: 2 }), // 통합비용 — 값이 있으면 수량×단가 대신 이 금액이 그 줄의 공급가(견적서와 동일)
   sortOrder: integer("sort_order").notNull(),
 });
 

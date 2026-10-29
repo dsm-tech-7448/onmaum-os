@@ -804,6 +804,7 @@ export function PoEditor({
           productNames={productNames}
           optionNames={optionNames}
           listId={nameListId}
+          allowLump
         />
 
         <h3 className="mb-2 mt-4 border-b border-neutral-100 pb-1 text-[13px] font-semibold text-[#8E1F3B]">

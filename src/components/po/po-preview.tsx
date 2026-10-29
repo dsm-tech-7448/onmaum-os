@@ -9,7 +9,8 @@ function calc(items: PoDraft["items"]) {
   const rows = items.map((it) => {
     const qtyNum = num(it.qty);
     const priceNum = num(it.price);
-    const amt = qtyNum * priceNum;
+    // 통합비용 줄은 수량×단가 대신 직접 입력한 금액이 공급가다(견적서와 동일).
+    const amt = it.supplyOverride ? num(it.supplyOverride) : qtyNum * priceNum;
     const vatAmt = Math.round(amt * 0.1);
     supply += amt;
     vat += vatAmt;
