@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, isNull, or } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, isNull, or } from "drizzle-orm";
 import { db } from "@/db";
 import {
   projects,
@@ -13,6 +13,7 @@ import {
   notificationLog,
   projectRequests,
   summaryOverrides,
+  historicalOrders,
 } from "@/db/schema";
 import { getNextStage } from "@/lib/projects/stage-transition";
 
@@ -507,6 +508,9 @@ export type UpcomingPeakSeasonCustomer = {
   contactName: string | null;
   mobilePhone: string | null;
   officePhone: string | null;
+  // 이전에 구매한 상품명(중복 제거, 최근 구매 순) — 성수기 달에 샀던 상품을 우선하고, 그 달에 상품명이
+  // 기록된 이력이 없으면 전체 이력에서 가져온다. 안내 연락 때 "작년에 이거 하셨는데" 하고 꺼낼 용도.
+  pastProducts: string[];
 };
 
 // 개인 성수기가 "다음 달"인 고객 — 온마음OS_시즌분석_고객등급_알림전략.md의 "고객별 과거
@@ -529,6 +533,36 @@ export async function getUpcomingPeakSeasonCustomers(): Promise<UpcomingPeakSeas
     .from(customers)
     .where(eq(customers.peakSeasonMonth, nextMonth));
 
+  // 이전 구매 상품명 — 성수기 계산과 같은 원천(historical_orders)을 고객명으로 묶는다.
+  const names = rows.map((r) => r.companyName);
+  const history = names.length
+    ? await db
+        .select({
+          customerName: historicalOrders.customerName,
+          productName: historicalOrders.productName,
+          orderDate: historicalOrders.orderDate,
+        })
+        .from(historicalOrders)
+        .where(and(inArray(historicalOrders.customerName, names), isNotNull(historicalOrders.productName)))
+        .orderBy(desc(historicalOrders.orderDate))
+    : [];
+  const peakProducts = new Map<string, string[]>();
+  const allProducts = new Map<string, string[]>();
+  const peakByName = new Map(rows.map((r) => [r.companyName, r.peakSeasonMonth]));
+  function addDistinct(map: Map<string, string[]>, key: string, product: string) {
+    const arr = map.get(key) ?? [];
+    if (!arr.includes(product)) arr.push(product);
+    map.set(key, arr);
+  }
+  for (const h of history) {
+    const product = h.productName?.trim();
+    if (!h.customerName || !product) continue;
+    addDistinct(allProducts, h.customerName, product);
+    if (h.orderDate && Number(h.orderDate.slice(5, 7)) === peakByName.get(h.customerName)) {
+      addDistinct(peakProducts, h.customerName, product);
+    }
+  }
+
   return rows
     .map((r) => ({
       customerId: r.id,
@@ -537,6 +571,7 @@ export async function getUpcomingPeakSeasonCustomers(): Promise<UpcomingPeakSeas
       contactName: r.contactName,
       mobilePhone: r.mobilePhone,
       officePhone: r.officePhone,
+      pastProducts: peakProducts.get(r.companyName) ?? allProducts.get(r.companyName) ?? [],
     }))
     .sort((a, b) => a.companyName.localeCompare(b.companyName));
 }

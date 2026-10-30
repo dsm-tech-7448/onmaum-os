@@ -12,10 +12,10 @@ export default async function PeakSeasonPage() {
 
   return (
     <main className="min-h-screen bg-neutral-50 px-6 py-10">
-      <div className="mx-auto max-w-3xl">
+      <div className="mx-auto max-w-5xl">
         <DetailHeader
           title="다가오는 성수기 고객"
-          subtitle={`과거 구매 이력(Daily Summary 기준정보)상 개인 성수기가 ${nextMonthLabel}인 고객입니다 — 지금 연락하면 성수기 1개월 전 안내가 됩니다.`}
+          subtitle={`과거 구매 이력(Daily Summary 기준정보)상 개인 성수기가 ${nextMonthLabel}인 고객입니다 — 지금 연락하면 성수기 1개월 전 안내가 됩니다. 이전 구매 상품은 그 성수기 달에 샀던 상품(없으면 전체 이력) 기준, 최근 순입니다.`}
         />
 
         <div className="overflow-hidden rounded-xl border border-neutral-200 bg-white">
@@ -27,6 +27,7 @@ export default async function PeakSeasonPage() {
                 <tr className="border-b border-neutral-200 bg-neutral-50 text-left text-xs text-neutral-500">
                   <th className="px-4 py-2">기관명</th>
                   <th className="px-4 py-2">성수기</th>
+                  <th className="px-4 py-2">이전 구매 상품</th>
                   <th className="px-4 py-2">담당자</th>
                   <th className="px-4 py-2">휴대폰</th>
                   <th className="px-4 py-2">사무실 전화</th>
@@ -37,6 +38,18 @@ export default async function PeakSeasonPage() {
                   <tr key={c.customerId} className="border-b border-neutral-100 last:border-0 hover:bg-neutral-50">
                     <td className="px-4 py-2 font-medium text-neutral-900">{c.companyName}</td>
                     <td className="px-4 py-2 text-neutral-600">{c.peakSeasonMonth}월</td>
+                    <td className="px-4 py-2 text-neutral-600">
+                      {c.pastProducts.length === 0 ? (
+                        "-"
+                      ) : (
+                        <>
+                          {c.pastProducts.slice(0, 3).join(", ")}
+                          {c.pastProducts.length > 3 && (
+                            <span className="text-neutral-400"> 외 {c.pastProducts.length - 3}개</span>
+                          )}
+                        </>
+                      )}
+                    </td>
                     <td className="px-4 py-2 text-neutral-600">{c.contactName || "-"}</td>
                     <td className="px-4 py-2 text-neutral-600">{c.mobilePhone || "-"}</td>
                     <td className="px-4 py-2 text-neutral-600">{c.officePhone || "-"}</td>
