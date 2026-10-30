@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { and, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, ilike, inArray, or, sql } from "drizzle-orm";
 import { getSession } from "@/lib/auth/session";
 import { db } from "@/db";
 import { projects, projectStages, customers, quotes, quoteItems } from "@/db/schema";
@@ -68,7 +68,24 @@ async function getProjectProductNames(projectIds: string[]): Promise<Map<string,
   return result;
 }
 
-export default async function ProjectsPage() {
+// 찾기(2026-10-30) — 고객사명뿐 아니라 상품명으로도 찾는다. 목록은 기본 최근 100건만 불러오므로
+// 검색어가 있을 땐 전체 프로젝트에서 찾는다. 상품명은 어느 견적(리비전 포함)의 품목명이나 비교견적
+// 상품명에 들어 있어도 걸린다 — 목록에 보이는 대표 상품명(가장 최근 견적)과 달라도 찾을 수 있게.
+function projectSearchCondition(q: string) {
+  const like = `%${q.replace(/[\\%_]/g, (c) => "\\" + c)}%`;
+  return or(
+    ilike(customers.companyName, like),
+    ilike(projects.projectNumber, like),
+    sql`exists (select 1 from ${quotes} where ${quotes.projectId} = ${projects.id} and ${quotes.compareProductName} ilike ${like})`,
+    sql`exists (select 1 from ${quotes} inner join ${quoteItems} on ${quoteItems.quoteId} = ${quotes.id} where ${quotes.projectId} = ${projects.id} and ${quoteItems.name} ilike ${like})`
+  );
+}
+
+export default async function ProjectsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ q?: string | string[] }>;
+}) {
   const session = await getSession();
   if (!session) {
     redirect("/login");
@@ -78,6 +95,9 @@ export default async function ProjectsPage() {
     .select()
     .from(projectStages)
     .orderBy(projectStages.sortOrder);
+
+  const { q: rawQ } = await searchParams;
+  const q = (Array.isArray(rawQ) ? rawQ[0] : rawQ)?.trim() ?? "";
 
   const rows = await db
     .select({
@@ -91,8 +111,9 @@ export default async function ProjectsPage() {
     .from(projects)
     .innerJoin(customers, eq(projects.customerId, customers.id))
     .leftJoin(projectStages, eq(projects.currentStageId, projectStages.id))
+    .where(q ? projectSearchCondition(q) : undefined)
     .orderBy(desc(projects.createdAt))
-    .limit(100);
+    .limit(q ? 300 : 100);
 
   const productNames = await getProjectProductNames(rows.map((r) => r.id));
 
@@ -122,7 +143,34 @@ export default async function ProjectsPage() {
           </div>
         </div>
 
-        {rows.length === 0 ? (
+        <form method="get" className="mb-4 flex items-center gap-2">
+          <input
+            type="search"
+            name="q"
+            defaultValue={q}
+            placeholder="고객사명 · 상품명 · 프로젝트 번호로 찾기"
+            className="w-full max-w-md rounded-md border border-neutral-300 bg-white px-3 py-2 text-sm outline-none focus:border-neutral-900"
+          />
+          <button type="submit" className="rounded-md bg-neutral-900 px-4 py-2 text-sm font-medium text-white hover:bg-neutral-700">
+            찾기
+          </button>
+          {q && (
+            <Link href="/projects" className="text-sm text-neutral-500 underline">
+              검색 지우기
+            </Link>
+          )}
+        </form>
+        {q && (
+          <p className="mb-3 text-xs text-neutral-500">
+            &quot;{q}&quot; 검색 결과 {rows.length}건{rows.length >= 300 ? " (최대 300건까지만 표시)" : ""}
+          </p>
+        )}
+
+        {rows.length === 0 && q ? (
+          <div className="rounded-xl border border-neutral-200 bg-white p-8 text-center text-sm text-neutral-500">
+            &quot;{q}&quot;에 해당하는 프로젝트가 없습니다.
+          </div>
+        ) : rows.length === 0 ? (
           <div className="rounded-xl border border-neutral-200 bg-white p-8 text-center text-sm text-neutral-500">
             아직 프로젝트가 없습니다.{" "}
             <Link href="/projects/new" className="text-neutral-900 underline">
