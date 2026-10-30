@@ -259,6 +259,7 @@ export type SaveQuoteResult = {
   id: string;
   revision: number;
   createdAt: string;
+  quoteDate: string; // 실제로 저장된 견적일자("" = 표시 안 함) — 화면 미리보기를 맞추는 데 쓴다
 };
 
 async function accumulateMasters(allItems: QuoteItemDraft[]) {
@@ -310,6 +311,11 @@ export async function saveQuote(
 
   const nextRevision = (maxRevision ?? 0) + 1;
 
+  // 견적일자 = 이 리비전을 저장한 날(2026-10-30 요청: "이전에 제출한 견적서인데 최근 날짜로 바꿔 달라는
+  // 경우가 있다"). 새 리비전을 저장하면 날짜 표시가 켜져 있는 한 오늘 날짜(한국 시간)로 자동 갱신된다.
+  // 날짜를 직접 정해야 하면 "수정 저장"(updateQuote)은 입력한 날짜를 그대로 둔다.
+  const quoteDate = draft.quoteDate ? new Date().toLocaleDateString("sv-SE", { timeZone: "Asia/Seoul" }) : "";
+
   const [created] = await db
     .insert(quotes)
     .values({
@@ -320,7 +326,7 @@ export async function saveQuote(
       customerName: draft.customerName.trim(),
       contactName: draft.contactName.trim() || null,
       contactPhone: draft.contactPhone.trim() || null,
-      quoteDate: draft.quoteDate || null,
+      quoteDate: quoteDate || null,
       validity: draft.validity || null,
       confirmText: draft.confirmText || null,
       mainImageDataUrl: draft.mainImageDataUrl,
@@ -400,7 +406,7 @@ export async function saveQuote(
   // 나중에 알게 된 고객사명을 견적서에 입력하면 프로젝트 제목(고객사)도 함께 따라가게 한다.
   await syncProjectCustomerWithQuote(projectId, quoteNumber, draft.customerName);
 
-  return { id: created.id, revision: nextRevision, createdAt: created.createdAt.toISOString() };
+  return { id: created.id, revision: nextRevision, createdAt: created.createdAt.toISOString(), quoteDate };
 }
 
 // 오타·빠진 내용 정정용 "수정 저장" — 새 리비전을 만들지 않고 지금 불러온 리비전을 그대로

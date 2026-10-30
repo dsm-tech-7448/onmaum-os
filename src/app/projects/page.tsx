@@ -81,6 +81,11 @@ function projectSearchCondition(q: string) {
   );
 }
 
+// 정렬 기준(2026-10-30 요청: "프로젝트 소팅을 리비전 날짜 순으로") — 프로젝트를 만든 날이 아니라
+// 가장 최근 견적 리비전을 저장한 날. 예전에 제출한 견적서를 새 날짜로 다시 내보내면 그 프로젝트가 맨 위로
+// 올라온다. 견적이 아직 없는 프로젝트는 프로젝트 생성일을 쓴다.
+const lastActivityAt = sql<Date | string>`coalesce((select max(${quotes.createdAt}) from ${quotes} where ${quotes.projectId} = ${projects.id}), ${projects.createdAt})`;
+
 export default async function ProjectsPage({
   searchParams,
 }: {
@@ -105,6 +110,7 @@ export default async function ProjectsPage({
       projectNumber: projects.projectNumber,
       requiresDraft: projects.requiresDraft,
       createdAt: projects.createdAt,
+      lastActivityAt,
       customerName: customers.companyName,
       currentStageSortOrder: projectStages.sortOrder,
     })
@@ -112,7 +118,7 @@ export default async function ProjectsPage({
     .innerJoin(customers, eq(projects.customerId, customers.id))
     .leftJoin(projectStages, eq(projects.currentStageId, projectStages.id))
     .where(q ? projectSearchCondition(q) : undefined)
-    .orderBy(desc(projects.createdAt))
+    .orderBy(desc(lastActivityAt), desc(projects.createdAt))
     .limit(q ? 300 : 100);
 
   const productNames = await getProjectProductNames(rows.map((r) => r.id));
@@ -204,7 +210,9 @@ export default async function ProjectsPage({
                           시안 생략
                         </span>
                       )}
-                      <span>{p.createdAt.toLocaleDateString("ko-KR")}</span>
+                      <span title="가장 최근 견적 리비전 저장일(견적이 없으면 프로젝트 생성일)">
+                        {new Date(p.lastActivityAt).toLocaleDateString("ko-KR")}
+                      </span>
                     </div>
                   </div>
                   <StageProgress
