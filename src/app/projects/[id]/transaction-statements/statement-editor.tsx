@@ -10,6 +10,7 @@ import type {
   StatementDraft,
   StatementSummary,
 } from "@/lib/transaction-statements/types";
+import type { QuoteRevisionSummary } from "@/lib/quotes/types";
 import { StatementPreview, type StatementCompanyInfo } from "@/components/statement/statement-preview";
 import { ItemRowsEditor } from "@/components/quote/item-rows-editor";
 import { exportNodeAsA4Png } from "@/lib/documents/export-a4-png";
@@ -18,6 +19,7 @@ import {
   getQuoteReferenceById,
   getQuoteReferenceByNumber,
   importItemsFromPO,
+  listQuoteRevisionsForStatement,
   loadStatement,
   markCashReceiptIssued,
   recordCustomerPayment,
@@ -152,12 +154,33 @@ export function StatementEditor({
     }
   }
 
-  async function handleSelectQuote(quoteNumber: string) {
+  // 견적번호별 리비전 목록(검색 결과의 "리비전 선택"을 펼칠 때 처음 한 번만 불러온다).
+  const [pickedOldRevision, setPickedOldRevision] = useState(false);
+  const [revisionsByQuote, setRevisionsByQuote] = useState<Record<string, QuoteRevisionSummary[] | "loading">>({});
+
+  async function toggleRevisions(quoteNumber: string) {
+    if (revisionsByQuote[quoteNumber]) {
+      setRevisionsByQuote((m) => {
+        const { [quoteNumber]: _closed, ...rest } = m;
+        return rest;
+      });
+      return;
+    }
+    setRevisionsByQuote((m) => ({ ...m, [quoteNumber]: "loading" }));
+    const revs = await listQuoteRevisionsForStatement(projectId, quoteNumber);
+    setRevisionsByQuote((m) => ({ ...m, [quoteNumber]: revs }));
+  }
+
+  // revision을 생략하면 최신 리비전.
+  async function handleSelectQuote(quoteNumber: string, revision?: number) {
     setIsLoadingQuote(true);
     try {
-      const quote = await getQuoteReferenceByNumber(projectId, quoteNumber);
+      const quote = await getQuoteReferenceByNumber(projectId, quoteNumber, revision);
       if (quote) {
         setSelectedQuote(quote);
+        const known = revisionsByQuote[quoteNumber];
+        const latest = Array.isArray(known) ? Math.max(...known.map((r) => r.revision)) : quote.revision;
+        setPickedOldRevision(latest > quote.revision);
         // 고객이 확정한 견적 내용(수신 고객사명/담당자/품명/수량/단가)을 그대로 거래명세서에 채운다.
         setDraft((d) => ({
           ...d,
@@ -217,6 +240,7 @@ export function StatementEditor({
       const quote = await getQuoteReferenceById(result.quoteId);
       if (quote) {
         setSelectedQuote(quote);
+        setPickedOldRevision(false);
         setDraft((d) => ({ ...d, customerName: quote.customerName, customerContactName: quote.contactName }));
         setShowQuotePicker(false);
       }
@@ -319,6 +343,7 @@ export function StatementEditor({
     if (result.quoteId) {
       const quote = await getQuoteReferenceById(result.quoteId);
       setSelectedQuote(quote);
+      setPickedOldRevision(false);
       setShowQuotePicker(!quote);
     } else {
       setSelectedQuote(null);
@@ -365,6 +390,7 @@ export function StatementEditor({
               <div className="flex items-center justify-between">
                 <span>
                   <span className="mr-1 font-bold text-[#8E1F3B]">{selectedQuote.quoteNumber}</span>
+                  <span className="mr-1 text-neutral-500">Rev.{String(selectedQuote.revision).padStart(2, "0")}</span>
                   {selectedQuote.customerName || "고객사 미입력"}
                 </span>
                 <button
@@ -378,6 +404,12 @@ export function StatementEditor({
               <p className="mt-1 text-[11px] text-neutral-500">
                 견적 합계 {selectedQuote.total.toLocaleString()}원 · 품목 {selectedQuote.items.length}개
               </p>
+              {pickedOldRevision && (
+                <p className="mt-1 text-[11px] font-medium text-amber-700">
+                  ⚠️ 최신이 아닌 리비전(Rev.{String(selectedQuote.revision).padStart(2, "0")})을 불러왔습니다. Summary는 견적서의
+                  최신 리비전 기준이라, 이 거래명세서의 품목이 견적 행과 이어지지 않고 따로 표시될 수 있습니다.
+                </p>
+              )}
               {(draft.linkedQuoteNumbers?.length ?? 0) > 1 && (
                 <p className="mt-1 text-[11px] font-medium text-[#2f7a4a]">
                   🔗 한 장으로 묶인 견적서: {draft.linkedQuoteNumbers?.join(", ")}
@@ -455,22 +487,62 @@ export function StatementEditor({
               />
               <div className="flex max-h-40 flex-col gap-1 overflow-y-auto">
                 {quoteSearchResults.map((q) => (
-                  <div
-                    key={q.quoteNumber}
-                    className="flex items-center justify-between rounded-md bg-white px-2.5 py-1.5 text-[11px]"
-                  >
-                    <span>
-                      <span className="mr-1.5 font-bold text-[#8E1F3B]">{q.quoteNumber}</span>
-                      {q.customerName || "고객사 미입력"} · {q.productName || "품명 미입력"} · 품목 {q.itemCount}개
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => handleSelectQuote(q.quoteNumber)}
-                      disabled={isLoadingQuote}
-                      className="rounded bg-[#8E1F3B] px-2 py-0.5 text-white disabled:opacity-50"
-                    >
-                      불러오기
-                    </button>
+                  <div key={q.quoteNumber} className="rounded-md bg-white px-2.5 py-1.5 text-[11px]">
+                    <div className="flex items-center justify-between gap-2">
+                      <span>
+                        <span className="mr-1.5 font-bold text-[#8E1F3B]">{q.quoteNumber}</span>
+                        {q.customerName || "고객사 미입력"} · {q.productName || "품명 미입력"} · 품목 {q.itemCount}개
+                        <span className="ml-1 text-neutral-400">(최신 Rev.{String(q.latestRevision).padStart(2, "0")})</span>
+                      </span>
+                      <span className="flex shrink-0 items-center gap-1.5">
+                        {q.latestRevision > 1 && (
+                          <button
+                            type="button"
+                            onClick={() => toggleRevisions(q.quoteNumber)}
+                            className="text-neutral-500 underline"
+                          >
+                            {revisionsByQuote[q.quoteNumber] ? "리비전 닫기" : "리비전 선택"}
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => handleSelectQuote(q.quoteNumber)}
+                          disabled={isLoadingQuote}
+                          className="rounded bg-[#8E1F3B] px-2 py-0.5 text-white disabled:opacity-50"
+                        >
+                          불러오기
+                        </button>
+                      </span>
+                    </div>
+                    {revisionsByQuote[q.quoteNumber] === "loading" && (
+                      <p className="mt-1 text-neutral-400">리비전 불러오는 중...</p>
+                    )}
+                    {Array.isArray(revisionsByQuote[q.quoteNumber]) && (
+                      <div className="mt-1.5 flex flex-col gap-1 border-t border-neutral-100 pt-1.5">
+                        {(revisionsByQuote[q.quoteNumber] as QuoteRevisionSummary[]).map((r) => (
+                          <div
+                            key={r.revision}
+                            className="flex items-center justify-between gap-2 rounded bg-neutral-50 px-2 py-1"
+                          >
+                            <span>
+                              <span className="mr-1.5 font-semibold text-neutral-700">
+                                Rev.{String(r.revision).padStart(2, "0")}
+                              </span>
+                              {new Date(r.createdAt).toLocaleDateString("ko-KR")} · {r.productName || "품명 미입력"} · 품목{" "}
+                              {r.itemCount}개
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => handleSelectQuote(q.quoteNumber, r.revision)}
+                              disabled={isLoadingQuote}
+                              className="shrink-0 rounded bg-[#8E1F3B] px-2 py-0.5 text-white disabled:opacity-50"
+                            >
+                              불러오기
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>

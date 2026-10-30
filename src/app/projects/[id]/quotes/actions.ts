@@ -646,15 +646,23 @@ export async function getQuoteReferenceById(quoteId: string): Promise<QuoteRefer
 
 // "저장된 견적 찾기"에서 견적번호를 골랐을 때 — 그 번호의 최신 리비전을 불러온다
 // (검색 목록엔 quoteId가 없이 quoteNumber만 있어서 번호 기준으로 다시 조회).
+// revision을 주면 그 리비전을, 안 주면 최신 리비전을 불러온다(거래명세서에서 이전 리비전을 고를 때).
 export async function getQuoteReferenceByNumber(
   projectId: string,
-  quoteNumber: string
+  quoteNumber: string,
+  revision?: number
 ): Promise<QuoteReferenceSummary | null> {
   await requireSession();
   const [quoteRow] = await db
     .select()
     .from(quotes)
-    .where(and(eq(quotes.projectId, projectId), eq(quotes.quoteNumber, quoteNumber)))
+    .where(
+      and(
+        eq(quotes.projectId, projectId),
+        eq(quotes.quoteNumber, quoteNumber),
+        revision != null ? eq(quotes.revision, revision) : undefined
+      )
+    )
     .orderBy(desc(quotes.revision))
     .limit(1);
   if (!quoteRow) return null;

@@ -21,8 +21,10 @@ import {
 import {
   getQuoteReferenceById as getQuoteReferenceByIdShared,
   getQuoteReferenceByNumber as getQuoteReferenceByNumberShared,
+  getQuoteRevisions,
   searchProjectQuotes,
 } from "@/app/projects/[id]/quotes/actions";
+import type { QuoteRevisionSummary } from "@/lib/quotes/types";
 import type {
   BundleQuoteOption,
   ImportablePO,
@@ -56,9 +58,18 @@ export async function getQuoteReferenceById(quoteId: string): Promise<QuoteRefer
 
 export async function getQuoteReferenceByNumber(
   projectId: string,
-  quoteNumber: string
+  quoteNumber: string,
+  revision?: number
 ): Promise<QuoteReferenceSummary | null> {
-  return getQuoteReferenceByNumberShared(projectId, quoteNumber);
+  return getQuoteReferenceByNumberShared(projectId, quoteNumber, revision);
+}
+
+// 견적서 하나의 전체 리비전 목록 — 거래명세서에서 어느 리비전을 불러올지 고르게 한다.
+export async function listQuoteRevisionsForStatement(
+  projectId: string,
+  quoteNumber: string
+): Promise<QuoteRevisionSummary[]> {
+  return getQuoteRevisions(projectId, quoteNumber);
 }
 
 // 페이지를 열었을 때 기본으로 보여줄 견적 — 이 프로젝트에서 가장 최근에 저장한 거래명세서가
