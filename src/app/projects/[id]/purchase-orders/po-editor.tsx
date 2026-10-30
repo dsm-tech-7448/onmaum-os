@@ -238,7 +238,7 @@ export function PoEditor({
     try {
       const result = await savePO(projectId, draft, saveShippingInfo);
       setRevision(result.revision);
-      setDraft((d) => ({ ...d, id: result.id }));
+      setDraft((d) => ({ ...d, id: result.id, poDate: result.poDate }));
       setSaveHint(
         `저장됨: ${draft.poNumber} Rev.${String(result.revision).padStart(2, "0")} (${draft.supplierName}) — 총 ${draft.items.length}개 품목. 아래에서 바로 공급업체 입금을 기록할 수 있습니다.`
       );
@@ -571,6 +571,9 @@ export function PoEditor({
               value={draft.poDate}
               onChange={(e) => set("poDate", e.target.value)}
             />
+            <p className="mt-1 text-[10px] text-neutral-400">
+              새 리비전으로 저장하면 저장한 날짜로 자동 변경됩니다(날짜를 직접 정하려면 &quot;수정 저장&quot;).
+            </p>
           </div>
           <div className="flex-1">
             <label className="mb-1 block text-xs font-medium text-neutral-700">발송요청일</label>

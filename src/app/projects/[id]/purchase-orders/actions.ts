@@ -484,7 +484,7 @@ async function autoLinkQuoteItems(quoteId: string, items: PoItemDraft[]): Promis
   });
 }
 
-export type SavePoResult = { revision: number; id: string };
+export type SavePoResult = { revision: number; id: string; poDate: string };
 
 export async function savePO(
   projectId: string,
@@ -520,6 +520,10 @@ export async function savePO(
 
   const nextRevision = (maxRevision ?? 0) + 1;
 
+  // 발주일자 = 이 리비전을 저장한 날(견적서와 동일, 2026-10-30 요청: 모든 문서는 리비전한 날짜를 적용).
+  // 날짜를 직접 정해야 하면 "수정 저장"(updatePO)은 입력한 날짜를 그대로 둔다.
+  const poDate = new Date().toLocaleDateString("sv-SE", { timeZone: "Asia/Seoul" });
+
   const [created] = await db
     .insert(purchaseOrders)
     .values({
@@ -532,7 +536,7 @@ export async function savePO(
       supplierName: draft.supplierName.trim(),
       supplierPhone: draft.supplierPhone || null,
       receiver: draft.receiver || null,
-      poDate: draft.poDate,
+      poDate,
       reqDate: draft.reqDate || null,
       payTerm: draft.payTerm || null,
       printNote: draft.printNote || null,
@@ -575,5 +579,5 @@ export async function savePO(
     }
   }
 
-  return { revision: nextRevision, id: created.id };
+  return { revision: nextRevision, id: created.id, poDate };
 }
