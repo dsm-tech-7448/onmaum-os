@@ -549,9 +549,28 @@ export async function updateQuote(
     }
   }
 
+  await applyCustomerInfoToAllRevisions(projectId, quote.quoteNumber, draft);
   await syncProjectCustomerWithQuote(projectId, quote.quoteNumber, draft.customerName);
 
   return { id: quote.id, revision: quote.revision };
+}
+
+// 고객 정보(고객사명/담당자/담당자 전화)는 리비전마다 다른 값일 이유가 없는데, Summary는 견적번호별 "최신
+// 리비전"만 보여준다. 이전 리비전을 열어 놓고 "수정 저장"하면 그 리비전만 바뀌어 Summary에 안 나타났다
+// (2026-11-06) — 그래서 어느 리비전에서 고쳐도 같은 견적번호의 모든 리비전에 함께 반영한다.
+async function applyCustomerInfoToAllRevisions(
+  projectId: string,
+  quoteNumber: string,
+  fields: { customerName: string; contactName: string; contactPhone: string }
+) {
+  await db
+    .update(quotes)
+    .set({
+      customerName: fields.customerName.trim(),
+      contactName: fields.contactName.trim() || null,
+      contactPhone: fields.contactPhone.trim() || null,
+    })
+    .where(and(eq(quotes.projectId, projectId), eq(quotes.quoteNumber, quoteNumber)));
 }
 
 // 고객사명/담당자/담당자 전화만 수정 저장 — 새 리비전을 만들지 않고 해당 리비전 행을
@@ -576,14 +595,7 @@ export async function updateQuoteCustomerInfo(
   const customerName = fields.customerName.trim();
   if (!customerName) throw new Error("고객사명을 입력해주세요.");
 
-  await db
-    .update(quotes)
-    .set({
-      customerName,
-      contactName: fields.contactName.trim() || null,
-      contactPhone: fields.contactPhone.trim() || null,
-    })
-    .where(eq(quotes.id, quoteId));
+  await applyCustomerInfoToAllRevisions(projectId, quote.quoteNumber, { ...fields, customerName });
 
   await syncProjectCustomerWithQuote(projectId, quote.quoteNumber, customerName);
 }

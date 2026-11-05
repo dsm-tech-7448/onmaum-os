@@ -121,27 +121,71 @@ export function PoEditor({
     });
   }
 
+  function toPoItemRows(items: NonNullable<typeof selectedQuote>["items"]) {
+    return items.map((item) => ({
+      uid: newUid(),
+      lineType: (item.lineType === "option" ? "option" : "product") as "product" | "option",
+      code: "",
+      name: item.name,
+      spec: item.spec,
+      unit: item.unit || "개",
+      qty: item.qty,
+      price: "",
+      quoteItemId: item.id,
+    }));
+  }
+
+  // 지금 작성 중인 발주서에 품목을 덧붙인다(한 공급업체가 여러 품목을 함께 공급하는 경우).
   function handleAddQuoteItems(items: NonNullable<typeof selectedQuote>["items"]) {
     if (items.length === 0) return;
     setDraft((d) => {
       const existing = d.items.filter((it) => it.name.trim() !== "");
-      const added = items.map((item) => ({
-        uid: newUid(),
-        lineType: (item.lineType === "option" ? "option" : "product") as "product" | "option",
-        code: "",
-        name: item.name,
-        spec: item.spec,
-        unit: item.unit || "개",
-        qty: item.qty,
-        price: "",
-        quoteItemId: item.id,
-      }));
       return {
         ...d,
         quoteItemId: d.quoteItemId ?? items[0].id,
-        items: [...existing, ...added],
+        items: [...existing, ...toPoItemRows(items)],
       };
     });
+    setCheckedItemIds(new Set());
+    setShowItemPicker(false);
+  }
+
+  // 견적서의 품목마다 공급업체가 다를 때(2026-11-02) — 품목을 고르면 그 품목만 담긴 새 발주서를
+  // 시작한다. 이미 저장된 발주서를 보고 있었다면 새 발주번호를 받고(그 발주서의 새 리비전이 되지
+  // 않게), 공급업체·배송지 등은 비워서 다른 업체 발주로 넘어간다. 아직 저장 전인 초안은 번호를
+  // 그대로 쓴다.
+  async function handleCreatePoFromItems(items: NonNullable<typeof selectedQuote>["items"]) {
+    if (items.length === 0) return;
+    const hasUnsavedItems = !draft.id && draft.items.some((it) => it.name.trim() !== "");
+    if (hasUnsavedItems && !window.confirm("아직 저장하지 않은 발주서 내용이 사라집니다. 새 발주서로 시작할까요?")) {
+      return;
+    }
+    const poNumber = draft.id ? await generateNewPoNumber() : draft.poNumber;
+    setDraft((d) => ({
+      poNumber,
+      quoteId: d.quoteId,
+      quoteItemId: items[0].id,
+      supplierId: null,
+      supplierName: "",
+      supplierPhone: "",
+      receiver: "",
+      poDate: new Date().toLocaleDateString("sv-SE", { timeZone: "Asia/Seoul" }),
+      reqDate: "",
+      payTerm: "현금",
+      printNote: "없음",
+      shipAddr: "",
+      shipReceiver: "",
+      note: "",
+      requestNote: d.requestNote,
+      paidAmount: "",
+      paidDate: "",
+      items: toPoItemRows(items),
+    }));
+    setRevision(0);
+    setSaveHint("");
+    setSaveError("");
+    setPaymentHint("");
+    setReqDateHint("");
     setCheckedItemIds(new Set());
     setShowItemPicker(false);
   }
@@ -460,8 +504,8 @@ export function PoEditor({
             ) : (
               <>
                 <p className="mb-1 text-[11px] text-neutral-500">
-                  한 공급업체로 여러 품목을 같이 보낼 때는 체크박스로 여러 개를 선택한 뒤 아래
-                  버튼을 눌러주세요.
+                  발주할 품목을 선택하면 그 품목으로 새 발주서가 시작됩니다. 한 공급업체로 여러 품목을
+                  같이 보낼 때는 체크박스로 여러 개를 선택하세요.
                 </p>
                 <div className="flex max-h-40 flex-col gap-1 overflow-y-auto">
                   {selectedQuote.items.map((it) => {
@@ -505,13 +549,25 @@ export function PoEditor({
                 <button
                   type="button"
                   onClick={() =>
-                    handleAddQuoteItems(selectedQuote.items.filter((it) => checkedItemIds.has(it.id)))
+                    handleCreatePoFromItems(selectedQuote.items.filter((it) => checkedItemIds.has(it.id)))
                   }
                   disabled={checkedItemIds.size === 0}
                   className="mt-2 w-full rounded-md bg-[#8E1F3B] px-2 py-1.5 text-[11px] font-medium text-white disabled:opacity-50"
                 >
-                  선택한 품목으로 작성 ({checkedItemIds.size}개)
+                  선택한 품목으로 새 발주서 작성 ({checkedItemIds.size}개)
                 </button>
+                {pickedItemRows.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      handleAddQuoteItems(selectedQuote.items.filter((it) => checkedItemIds.has(it.id)))
+                    }
+                    disabled={checkedItemIds.size === 0}
+                    className="mt-1 w-full rounded-md border border-neutral-300 bg-white px-2 py-1.5 text-[11px] text-neutral-700 disabled:opacity-50"
+                  >
+                    지금 작성 중인 발주서({draft.poNumber})에 품목 추가
+                  </button>
+                )}
               </>
             )}
           </div>

@@ -8,6 +8,7 @@ import { recordSupplierPayment } from "@/app/projects/[id]/purchase-orders/actio
 import { recordCustomerPayment, markCashReceiptIssued } from "@/app/projects/[id]/transaction-statements/actions";
 import { addProjectRequest } from "@/app/projects/[id]/requests-actions";
 import { updateSummaryOverride, updateCustomerReqDate } from "./actions";
+import { downloadSummaryXlsx } from "./export-xlsx";
 
 function won(v: number | null): string {
   if (v == null) return "-";
@@ -138,6 +139,7 @@ export function SummarySheetEditor({
   // 찾기(2026-10-23) — 표의 값이 전부 입력칸(input) 안에 있어 브라우저 Ctrl+F로는 안 찾아진다. 입력한 단어(공백으로
   // 여러 개 = 모두 포함)가 들어 있는 행만 보여준다.
   const [findQuery, setFindQuery] = useState("");
+  const [isExporting, setIsExporting] = useState(false);
   const historicalCount = rows.filter((r) => r.isHistorical).length;
 
   // 오늘 날짜는 브라우저에서만 안다(서버는 UTC) — 서버 렌더에서는 빈 값으로 두고 화면에 붙은 뒤 채워
@@ -382,6 +384,16 @@ export function SummarySheetEditor({
     .filter(matchesFind)
     .sort((a, b) => (b.sortDate || "").localeCompare(a.sortDate || ""));
 
+  // 화면에 지금 보이는 행(찾기/숨기기/과거 이력 설정 반영)을 그대로 엑셀로 내려받는다.
+  async function handleExportXlsx() {
+    setIsExporting(true);
+    try {
+      await downloadSummaryXlsx(visibleRows, localToday());
+    } finally {
+      setIsExporting(false);
+    }
+  }
+
   // 엑셀 틀고정처럼 헤더 2줄(위쪽 top-0 / 아래쪽 top-8, 32px = 위쪽 줄 높이)과 앞쪽
   // 컬럼들(날짜~상품명, "수량" 전까지)을 스크롤해도 고정해서 보이게 한다(2026-09-03에
   // 날짜 한 칸만 고정했다가, 2026-09-18 "한눈에 들어오지 않는다"는 피드백으로 상품명
@@ -426,9 +438,12 @@ export function SummarySheetEditor({
   }
 
   return (
-    <main className="min-h-screen bg-neutral-50 px-6 py-10">
-      <div className="mx-auto max-w-[1600px]">
-        <div className="mb-6">
+    // 표 영역이 화면 높이에 딱 맞게 들어가도록 main을 (화면 - 상단 바 34px) 높이로 고정하고 표 칸이 남은 높이를
+    // 채우게 한다(2026-11-04) — 표가 화면보다 길어도 아래쪽 가로 스크롤바가 맨 끝까지 내려가지 않아도 항상
+    // 보인다. 화면이 너무 낮으면 표 최소 높이(min-h)를 지키고 페이지가 스크롤된다.
+    <main className="flex h-[calc(100dvh-2.125rem)] flex-col bg-neutral-50 px-6 py-4">
+      <div className="mx-auto flex min-h-0 w-full max-w-[1600px] flex-1 flex-col">
+        <div className="mb-3 shrink-0">
           <Link href="/dashboard" className="text-sm text-neutral-500 hover:underline">
             ← 대시보드
           </Link>
@@ -443,7 +458,7 @@ export function SummarySheetEditor({
           </p>
         </div>
 
-        <div className="mb-3 flex items-center justify-between">
+        <div className="mb-3 flex shrink-0 items-center justify-between">
           <div className="flex items-center gap-3">
             <h2 className="text-sm font-semibold text-neutral-900">상품별 상세</h2>
             <div className="relative">
@@ -465,6 +480,15 @@ export function SummarySheetEditor({
             )}
           </div>
           <div className="flex items-center gap-4">
+            <button
+              type="button"
+              onClick={handleExportXlsx}
+              disabled={isExporting || visibleRows.length === 0}
+              title="지금 화면에 보이는 행을 엑셀 파일로 내려받습니다(찾기·숨기기·과거 이력 설정 반영)"
+              className="rounded-md border border-neutral-300 bg-white px-3 py-1.5 text-xs font-medium text-neutral-700 hover:bg-neutral-100 disabled:opacity-50"
+            >
+              {isExporting ? "만드는 중..." : `📥 엑셀로 받기 (${visibleRows.length}건)`}
+            </button>
             <label className="flex items-center gap-1.5 text-xs text-neutral-600">
               <input type="checkbox" checked={hideUnconverted} onChange={(e) => setHideUnconverted(e.target.checked)} />
               매출로 이어지지 않은 건(거래명세서 없음) 숨기기
@@ -476,7 +500,7 @@ export function SummarySheetEditor({
           </div>
         </div>
 
-        <div className="max-h-[75vh] overflow-auto rounded-xl border border-neutral-200 bg-white">
+        <div className="min-h-[320px] flex-1 overflow-auto rounded-xl border border-neutral-200 bg-white">
           <table className="w-full whitespace-nowrap text-xs">
             <thead>
               <tr className="text-left">

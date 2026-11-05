@@ -293,6 +293,51 @@ export async function getSummaryRows(options?: { includeHistorical?: boolean }):
     itemsByStatementId.set(r.statementId, arr);
   }
 
+  // 읽기 시점 보정(2026-11-05) — 발주서(위)와 같은 이유로, 거래명세서를 견적서의 이전 리비전(거래명세서에서
+  // "리비전 선택"으로 고른 경우 등)에서 만들면 statement_items.quote_item_id가 최신이 아닌 리비전의 품목을
+  // 가리켜 Summary에서 견적 행과 이어지지 않고 따로 떠 버린다(발주서는 최신 리비전 품목에 붙어 있어 한 건이
+  // 두 줄로 갈라짐). 옛 리비전 품목이 속한 견적의 "최신 리비전" 품목 중 이름이 정확히 하나만 일치하거나,
+  // 그 견적에서 온 명세서 품목이 1줄이고 최신 리비전 품목도 1개면 이어준다. 애매하면 이어주지 않는다(orphan).
+  const staleStmtQuoteItemIds = [
+    ...new Set(
+      allStmtItemRows
+        .map((r) => r.quoteItemId)
+        .filter((id): id is string => !!id && !quoteItemIdSet.has(id))
+    ),
+  ];
+  const staleItemQuoteId = new Map<string, string>();
+  if (staleStmtQuoteItemIds.length) {
+    const staleRows = await db
+      .select({ id: quoteItems.id, quoteId: quoteItems.quoteId })
+      .from(quoteItems)
+      .where(inArray(quoteItems.id, staleStmtQuoteItemIds));
+    for (const r of staleRows) staleItemQuoteId.set(r.id, r.quoteId);
+  }
+  function resolveStmtLinesToLatestItems(
+    productLines: { id: string; name: string; quoteItemId: string | null }[]
+  ): Map<string, string> {
+    const resolved = new Map<string, string>(); // statement line id -> 최신 리비전 quote item id
+    const staleByLatestQuote = new Map<string, typeof productLines>();
+    for (const line of productLines) {
+      if (!line.quoteItemId || quoteItemIdSet.has(line.quoteItemId)) continue;
+      const oldQuoteId = staleItemQuoteId.get(line.quoteItemId);
+      const latestQid = oldQuoteId ? latestQuoteIdByAnyQuoteId.get(oldQuoteId) : undefined;
+      if (!latestQid) continue;
+      const arr = staleByLatestQuote.get(latestQid) ?? [];
+      arr.push(line);
+      staleByLatestQuote.set(latestQid, arr);
+    }
+    for (const [latestQid, lines] of staleByLatestQuote) {
+      const candidates = productItemsByQuoteId.get(latestQid) ?? [];
+      for (const line of lines) {
+        const exact = candidates.filter((c) => c.name.trim() === line.name.trim());
+        if (exact.length === 1) resolved.set(line.id, exact[0].id);
+        else if (lines.length === 1 && candidates.length === 1) resolved.set(line.id, candidates[0].id);
+      }
+    }
+    return resolved;
+  }
+
   type AllocatedStmtLine = {
     id: string;
     statementId: string;
@@ -306,12 +351,20 @@ export async function getSummaryRows(options?: { includeHistorical?: boolean }):
     const fullTotal = lines.reduce((sum, l) => sum + stmtLineAmount(l), 0);
     const productLines = lines.filter((l) => l.lineType === "product");
     const productLinesTotal = productLines.reduce((sum, l) => sum + stmtLineAmount(l), 0);
+    const resolvedToLatest = resolveStmtLinesToLatestItems(productLines);
     for (const line of productLines) {
       const amt = stmtLineAmount(line);
       // 품목 합계가 0이면(수기 입력 누락 등) 배분 비율을 못 구하니 안전하게 줄 자체
       // 금액만 쓴다.
       const revenue = productLinesTotal > 0 ? (amt / productLinesTotal) * fullTotal : amt;
-      allocatedProductLines.push({ id: line.id, statementId, quoteItemId: line.quoteItemId, name: line.name, qty: line.qty, revenue });
+      allocatedProductLines.push({
+        id: line.id,
+        statementId,
+        quoteItemId: resolvedToLatest.get(line.id) ?? line.quoteItemId,
+        name: line.name,
+        qty: line.qty,
+        revenue,
+      });
     }
   }
 
