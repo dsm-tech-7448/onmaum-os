@@ -97,7 +97,9 @@ function sumPeriod(rows: SummaryRow[], start: string, end: string): PeriodStat {
     revenue,
     cost,
     profit: revenue - cost,
-    count: inRange.length,
+    // 견적 품목/명세서와 안 이어진 발주서 전용 행(분할 발주의 추가 발주서 행 등)은 건수에 넣지 않는다 — 한 건이
+    // 여러 줄로 나뉘어도 건수가 늘지 않게. (예전엔 이런 행에 날짜가 없어 자연스럽게 빠졌다.)
+    count: inRange.filter((r) => !(r.quoteItemId == null && r.poId && !r.statementId)).length,
   };
 }
 

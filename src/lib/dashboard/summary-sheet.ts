@@ -135,7 +135,9 @@ export async function getSummaryRows(options?: { includeHistorical?: boolean }):
     const existing = latestPoByKey.get(key);
     if (!existing || po.revision > existing.revision) latestPoByKey.set(key, po);
   }
-  const latestPos = Array.from(latestPoByKey.values());
+  // 같은 견적 품목에 발주서가 여러 건 붙을 때(아래 matchByPoQuoteItemId) 어느 발주서가 "대표"인지가 매번 같도록
+  // 발주번호 순으로 고정한다 — 먼저 만든 발주서가 대표 행, 나머지는 별도 행.
+  const latestPos = Array.from(latestPoByKey.values()).sort((a, b) => a.poNumber.localeCompare(b.poNumber));
   const poById = new Map(latestPos.map((po) => [po.id, po]));
   const quoteItemIdSet = new Set(quoteItemIds);
   const poIds = latestPos.map((po) => po.id);
@@ -236,11 +238,19 @@ export async function getSummaryRows(options?: { includeHistorical?: boolean }):
   }
 
   const matchedPoLines = allocatedPoLines.filter((l) => l.quoteItemId && quoteItemIdSet.has(l.quoteItemId));
-  const matchByPoQuoteItemId = new Map<string, { poId: string; cost: number }>();
+  // 한 견적 품목을 공급업체가 다른 여러 발주서로 나눠 발주할 수 있다(2026-11-06 — 세트 품목을 "신신파프"와
+  // "핫팩"처럼 다른 업체에 따로 발주). 매입(cost)은 전부 합쳐 그 품목 행에 두고(이익 계산), 대표 발주서 하나만
+  // 그 행에 붙이고 나머지(extraPoIds)는 아래에서 발주서별 별도 행(공급업체·출고·출금 입력용)으로 만든다.
+  const matchByPoQuoteItemId = new Map<string, { poId: string; cost: number; extraPoIds: string[] }>();
   for (const l of matchedPoLines) {
     if (!l.quoteItemId) continue;
     const existing = matchByPoQuoteItemId.get(l.quoteItemId);
-    matchByPoQuoteItemId.set(l.quoteItemId, { poId: l.poId, cost: (existing?.cost ?? 0) + l.cost });
+    if (!existing) {
+      matchByPoQuoteItemId.set(l.quoteItemId, { poId: l.poId, cost: l.cost, extraPoIds: [] });
+    } else {
+      existing.cost += l.cost;
+      if (l.poId !== existing.poId && !existing.extraPoIds.includes(l.poId)) existing.extraPoIds.push(l.poId);
+    }
   }
   const poIdsWithMatch = new Set(matchedPoLines.map((l) => l.poId));
   const orphanPos = latestPos.filter((po) => !poIdsWithMatch.has(po.id));
@@ -476,10 +486,9 @@ export async function getSummaryRows(options?: { includeHistorical?: boolean }):
   }
 
   // 6. 조립 — 견적 품목 기준 행.
-  const quoteItemRows: SummaryRow[] = items
-    .map((it): SummaryRow | null => {
+  const quoteItemRows: SummaryRow[] = items.flatMap((it): SummaryRow[] => {
       const quote = quoteById.get(it.quoteId);
-      if (!quote) return null;
+      if (!quote) return [];
       const project = projectById.get(quote.projectId);
       const poMatch = matchByPoQuoteItemId.get(it.id);
       const po = poMatch ? poById.get(poMatch.poId) : undefined;
@@ -491,7 +500,7 @@ export async function getSummaryRows(options?: { includeHistorical?: boolean }):
       const profit = revenue != null && cost != null ? revenue - cost : null;
       const marginRate = revenue ? (profit as number) / revenue : null;
 
-      return {
+      const main: SummaryRow = {
         rowKey: it.id,
         quoteId: quote.id,
         quoteItemId: it.id,
@@ -531,8 +540,52 @@ export async function getSummaryRows(options?: { includeHistorical?: boolean }):
         overriddenFields: [],
         isHistorical: false,
       };
-    })
-    .filter((r): r is SummaryRow => r !== null);
+
+      // 이 품목에 붙은 나머지 발주서(공급업체가 다른 분할 발주) — 대표 행 바로 아래에 발주서별 행으로. 견적 정보는
+      // 읽기 전용으로만 채우고, 매출/매입/이익은 대표 행에 합쳐져 있으니 비운다(합계 중복 방지).
+      const extraRows = (poMatch?.extraPoIds ?? []).flatMap((extraPoId): SummaryRow[] => {
+        const xpo = poById.get(extraPoId);
+        if (!xpo) return [];
+        return [
+          {
+            rowKey: `${it.id}~${extraPoId}`,
+            quoteId: null,
+            quoteItemId: null,
+            projectId: quote.projectId,
+            projectNumber: project?.projectNumber ?? "-",
+            orderDate: quote.quoteDate ?? "",
+            sortDate: main.sortDate,
+            contactName: quote.contactName ?? "",
+            customerName: quote.customerName,
+            contactPhone: quote.contactPhone ?? "",
+            productCode: it.code ?? "",
+            productName: namesByPoId.get(extraPoId)?.join(", ") || it.name,
+            qty: poItemsByPoId.get(extraPoId)?.[0]?.qty ?? "",
+            poId: extraPoId,
+            reqDate: "",
+            poReqDate: xpo.reqDate ?? "",
+            customerRequests: "",
+            statementId: null,
+            paidCash: "",
+            paidCard: "",
+            taxInvoiceIssuedAt: "",
+            cashReceiptIssuedAt: "",
+            cardReceiptIssuedAt: "",
+            supplierName: xpo.supplierName,
+            supplierPhone: xpo.supplierPhone ?? "",
+            shipDate: shipDateByPoId.get(extraPoId) ?? "",
+            outAmount: xpo.paidAmount ?? "",
+            revenue: null,
+            cost: null,
+            profit: null,
+            marginRate: null,
+            overriddenFields: [],
+            isHistorical: false,
+          },
+        ];
+      });
+      return [main, ...extraRows];
+    });
 
   // 7. orphan 발주서 행 — 견적 품목과 매칭이 안 된 발주서(quote_item_id 비어있거나 잘못됨).
   // 매입액이 조용히 사라지지 않도록 별도 행으로 넣는다. 매출/영수증은 매칭할 견적 품목이

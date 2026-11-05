@@ -545,6 +545,9 @@ export function PoEditor({
                 <p className="mt-1 text-[10px] text-neutral-400">
                   &ldquo;✅ 발주됨&rdquo; 품목은 이미 다른 발주서에 들어가 있습니다 — 상품은 A사, 인쇄는
                   B사처럼 공급업체가 다르면 체크박스를 나눠서 선택해 발주서를 여러 건으로 작성하세요.
+                  견적에 세트로 묶인 한 줄(예: &ldquo;A+B&rdquo;)을 업체별로 나눠 발주하려면, 같은 줄을
+                  다시 선택해 새 발주서를 시작한 뒤 품명을 &ldquo;A&rdquo;/&ldquo;B&rdquo;로 고쳐 쓰고 단가를 입력하세요.
+                  Summary에는 발주서마다 한 줄씩 나옵니다.
                 </p>
                 <button
                   type="button"
