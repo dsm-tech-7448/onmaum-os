@@ -390,6 +390,12 @@ export function QuoteEditor({
               {isSavingCustomerInfo ? "저장 중..." : "고객 정보만 수정 저장 (리비전 생성 없음)"}
             </button>
             {customerInfoHint && <p className="mt-1 text-[11px] text-neutral-500">{customerInfoHint}</p>}
+            {revision > 0 && revisions.length > 0 && revisions[0].revision > revision && (
+              <p className="mt-1 text-[11px] font-medium text-amber-700">
+                ⚠️ 지금 열린 Rev.{String(revision).padStart(2, "0")}은 최신(Rev.{String(revisions[0].revision).padStart(2, "0")})이
+                아닙니다. Summary에는 최신 리비전의 고객 정보가 표시되니, 고객 정보는 최신 리비전에서 수정하세요.
+              </p>
+            )}
           </div>
         )}
 

@@ -215,7 +215,12 @@ export async function getSummaryRows(options?: { includeHistorical?: boolean }):
   for (const po of latestPos) {
     const lines = poItemsByPoId.get(po.id) ?? [];
     const fullTotal = lines.reduce((sum, l) => sum + poLineAmount(l), 0);
-    const productLines = lines.filter((l) => l.lineType === "product");
+    // 품목 줄 판정(2026-11-06): 견적에서 "옵션"으로 넣었던 물품을 나중에 "품목"으로 바꿔도, 이미 만들어진
+    // 발주서의 줄 유형(line_type)은 옵션으로 남는다 — 그러면 어느 견적 품목 행에도 안 붙고 따로 떠 버린다.
+    // 줄이 견적의 (최신 리비전) 품목 행에 직접 연결돼 있으면 유형과 관계없이 품목 줄로 본다.
+    const productLines = lines.filter(
+      (l) => l.lineType === "product" || (l.quoteItemId != null && quoteItemIdSet.has(l.quoteItemId))
+    );
     const productLinesTotal = productLines.reduce((sum, l) => sum + poLineAmount(l), 0);
     const singleProduct = productLines.length === 1;
     for (const line of productLines) {
@@ -314,7 +319,8 @@ export async function getSummaryRows(options?: { includeHistorical?: boolean }):
     for (const r of staleRows) staleItemQuoteId.set(r.id, r.quoteId);
   }
   function resolveStmtLinesToLatestItems(
-    productLines: { id: string; name: string; quoteItemId: string | null }[]
+    productLines: { id: string; name: string; quoteItemId: string | null }[],
+    exactNameOnly = false
   ): Map<string, string> {
     const resolved = new Map<string, string>(); // statement line id -> 최신 리비전 quote item id
     const staleByLatestQuote = new Map<string, typeof productLines>();
@@ -332,7 +338,7 @@ export async function getSummaryRows(options?: { includeHistorical?: boolean }):
       for (const line of lines) {
         const exact = candidates.filter((c) => c.name.trim() === line.name.trim());
         if (exact.length === 1) resolved.set(line.id, exact[0].id);
-        else if (lines.length === 1 && candidates.length === 1) resolved.set(line.id, candidates[0].id);
+        else if (!exactNameOnly && lines.length === 1 && candidates.length === 1) resolved.set(line.id, candidates[0].id);
       }
     }
     return resolved;
@@ -349,9 +355,20 @@ export async function getSummaryRows(options?: { includeHistorical?: boolean }):
   const allocatedProductLines: AllocatedStmtLine[] = [];
   for (const [statementId, lines] of itemsByStatementId) {
     const fullTotal = lines.reduce((sum, l) => sum + stmtLineAmount(l), 0);
-    const productLines = lines.filter((l) => l.lineType === "product");
+    // 품목 줄 판정(발주서와 같은 이유, 2026-11-06): 줄 유형이 옵션으로 남아 있어도 견적의 품목 행에 연결돼 있으면
+    // (최신 리비전 품목에 직접 연결되었거나, 옛 리비전 품목이라도 최신 리비전 품목과 이름이 정확히 하나 일치)
+    // 품목 줄로 본다.
+    const typedProductLines = lines.filter((l) => l.lineType === "product");
+    const optionLines = lines.filter((l) => l.lineType !== "product");
+    const resolvedOptionLines = resolveStmtLinesToLatestItems(optionLines, true);
+    const productLines = [
+      ...typedProductLines,
+      ...optionLines.filter(
+        (l) => (l.quoteItemId != null && quoteItemIdSet.has(l.quoteItemId)) || resolvedOptionLines.has(l.id)
+      ),
+    ];
     const productLinesTotal = productLines.reduce((sum, l) => sum + stmtLineAmount(l), 0);
-    const resolvedToLatest = resolveStmtLinesToLatestItems(productLines);
+    const resolvedToLatest = new Map([...resolveStmtLinesToLatestItems(typedProductLines), ...resolvedOptionLines]);
     for (const line of productLines) {
       const amt = stmtLineAmount(line);
       // 품목 합계가 0이면(수기 입력 누락 등) 배분 비율을 못 구하니 안전하게 줄 자체
@@ -520,23 +537,31 @@ export async function getSummaryRows(options?: { includeHistorical?: boolean }):
   // 7. orphan 발주서 행 — 견적 품목과 매칭이 안 된 발주서(quote_item_id 비어있거나 잘못됨).
   // 매입액이 조용히 사라지지 않도록 별도 행으로 넣는다. 매출/영수증은 매칭할 견적 품목이
   // 없어 항상 빈칸("이 발주서가 어느 매출과 짝인지 모른다"는 뜻).
+  //
+  // 견적 헤더 정보 보충(2026-11-06): 견적에서 "옵션" 줄로 넣은 물품(예: 세트 구성품)을 그대로 발주하면 발주 품목도
+  // 옵션 줄이라 어느 견적 품목 행에도 안 붙는다. 이때 날짜/담당자/연락처가 "-"로 비어 보이던 것을, 발주서가
+  // 연결한 견적(어느 리비전이든 → 최신 리비전)의 값으로 채운다. 행은 계속 따로 둔다 — 공급업체마다 발송요청일/
+  // 출고날짜/출금을 발주서별로 입력해야 해서다. 견적 값은 읽기 전용(quoteId는 null 유지).
   const orphanRows: SummaryRow[] = orphanPos.map((po) => {
     const project = projectById.get(po.projectId);
     const cost = costByPoId.get(po.id) ?? 0;
+    const latestQid = po.quoteId ? latestQuoteIdByAnyQuoteId.get(po.quoteId) : undefined;
+    const quote = latestQid ? quoteById.get(latestQid) : undefined;
+    const firstLine = poItemsByPoId.get(po.id)?.[0];
     return {
       rowKey: `po-${po.id}`,
       quoteId: null,
       quoteItemId: null,
       projectId: po.projectId,
       projectNumber: project?.projectNumber ?? "-",
-      orderDate: "",
+      orderDate: quote?.quoteDate ?? "",
       sortDate: po.poDate ?? "",
-      contactName: "",
-      customerName: project?.customerName ?? "-",
-      contactPhone: "",
+      contactName: quote?.contactName ?? "",
+      customerName: quote?.customerName || project?.customerName || "-",
+      contactPhone: quote?.contactPhone ?? "",
       productCode: "",
       productName: namesByPoId.get(po.id)?.join(", ") || "-",
-      qty: "",
+      qty: firstLine?.qty ?? "",
       poId: po.id,
       reqDate: "",
       poReqDate: po.reqDate ?? "",
