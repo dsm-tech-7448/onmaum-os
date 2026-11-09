@@ -282,6 +282,14 @@ function QuoteComparePreview({
   // 금액(구간 합계)까지만 보여주고, 견적금액 배너·공급가액/부가세/합계 표는 만들지 않는다.
   const allItems = draft.tiers.flatMap((tier) => tier.items);
   const { rows } = calc(allItems);
+  // 구간마다 품목+옵션(실크인쇄·배송비 등)을 합한 소계를 그 구간 줄들 바로 아래에 보여준다(2026-11-09 요청).
+  // 줄이 하나뿐인 구간은 소계가 그 줄과 같아 생략한다. 구간들 사이의 전체 합계는 여전히 만들지 않는다.
+  const tierBlocks = draft.tiers.map((tier) => {
+    const c = calc(tier.items);
+    const productRow = c.rows.find((r) => r.lineType === "product");
+    return { uid: tier.uid, ...c, headQty: productRow?.qtyNum ?? 0, headUnit: productRow?.unit || "개" };
+  });
+  const subtotalRowCount = tierBlocks.filter((b) => b.rows.length > 1).length;
   const productName = draft.compareProductName || "(품목명 미입력)";
   // 구간 공통 이미지(mainImageDataUrl) + 필요하면 품목 줄마다 따로 넣은 이미지도 함께 보여준다.
   const productImages = [
@@ -292,7 +300,7 @@ function QuoteComparePreview({
   ];
 
   return (
-    <div className={`quote-doc${rows.length >= DENSE_ROW_THRESHOLD ? " dense" : ""}`}>
+    <div className={`quote-doc${rows.length + subtotalRowCount >= DENSE_ROW_THRESHOLD ? " dense" : ""}`}>
       <DocHeader logo={logo} title="견 적 서" sub="QUOTATION" />
       <div className="top-info">
         <div className="customer-block">
@@ -350,19 +358,38 @@ function QuoteComparePreview({
           </tr>
         </thead>
         <tbody>
-          {rows.map((r, idx) => (
-            <tr key={r.uid}>
-              <td className="code">{r.code || (idx === 0 ? draft.compareProductCode : "")}</td>
-              <td className="itemname">{r.name || (idx === 0 ? productName : "")}</td>
-              <td>{r.spec || (idx === 0 ? draft.compareProductSpec : "")}</td>
-              <td>{r.unit || "개"}</td>
-              <td>{r.qtyNum ? r.qtyNum.toLocaleString() : "-"}</td>
-              <td>{r.priceNum ? fmt(r.priceNum) : "-"}</td>
-              <td>{r.amt ? fmt(r.amt) : "-"}</td>
-              <td>{r.vatAmt ? fmt(r.vatAmt) : "-"}</td>
-              <td>{r.amt ? fmt(r.amt + r.vatAmt) : "-"}</td>
-            </tr>
-          ))}
+          {tierBlocks.map((block, blockIdx) => {
+            // 첫 구간의 첫 줄만 코드/품명/규격 기본값(compareProduct*)을 채운다(예전 표시와 동일).
+            const offset = tierBlocks.slice(0, blockIdx).reduce((sum, b) => sum + b.rows.length, 0);
+            return [
+              ...block.rows.map((r, i) => {
+                const idx = offset + i;
+                return (
+                  <tr key={r.uid}>
+                    <td className="code">{r.code || (idx === 0 ? draft.compareProductCode : "")}</td>
+                    <td className="itemname">{r.name || (idx === 0 ? productName : "")}</td>
+                    <td>{r.spec || (idx === 0 ? draft.compareProductSpec : "")}</td>
+                    <td>{r.unit || "개"}</td>
+                    <td>{r.qtyNum ? r.qtyNum.toLocaleString() : "-"}</td>
+                    <td>{r.priceNum ? fmt(r.priceNum) : "-"}</td>
+                    <td>{r.amt ? fmt(r.amt) : "-"}</td>
+                    <td>{r.vatAmt ? fmt(r.vatAmt) : "-"}</td>
+                    <td>{r.amt ? fmt(r.amt + r.vatAmt) : "-"}</td>
+                  </tr>
+                );
+              }),
+              block.rows.length > 1 ? (
+                <tr key={`${block.uid}-subtotal`} className="tier-subtotal">
+                  <td colSpan={6} className="label">
+                    소계{block.headQty ? ` (${block.headQty.toLocaleString()}${block.headUnit} 기준, 옵션 포함)` : " (옵션 포함)"}
+                  </td>
+                  <td>{fmt(block.supply)}</td>
+                  <td>{fmt(block.vat)}</td>
+                  <td>{fmt(block.total)}</td>
+                </tr>
+              ) : null,
+            ];
+          })}
         </tbody>
       </table>
 

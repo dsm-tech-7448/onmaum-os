@@ -76,7 +76,8 @@ function syncToGithub() {
     maxBuffer: 1 << 30,
   });
   if (archive.status !== 0) throw new Error(`git archive 실패: ${String(archive.stderr || "").trim()}`);
-  const extract = spawnSync("tar", ["-x", "-C", MIRROR_DIR], { input: archive.stdout });
+  // `-f -`로 표준입력에서 읽는다고 명시 — 안 쓰면 PowerShell 등에서 Windows 기본 tar가 테이프 장치(\\.\tape0)를 열려 한다.
+  const extract = spawnSync("tar", ["-xf", "-", "-C", MIRROR_DIR], { input: archive.stdout });
   if (extract.status !== 0) throw new Error(`tar 풀기 실패: ${String(extract.stderr || "").trim()}`);
 
   git(MIRROR_DIR, "add", "-A");

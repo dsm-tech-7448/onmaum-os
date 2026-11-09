@@ -146,6 +146,16 @@
   text-align: left;
   padding-left: 6px;
 }
+/* 수량 비교 견적의 구간별 소계(품목+옵션 합) 줄 */
+.quote-doc table.items tr.tier-subtotal td {
+  background: #f7e9ed;
+  font-weight: 700;
+  border-bottom: 2px solid #8e1f3b;
+}
+.quote-doc table.items tr.tier-subtotal td.label {
+  text-align: right;
+  padding-right: 10px;
+}
 .quote-doc .imgsec {
   margin-bottom: 14px;
 }
