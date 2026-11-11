@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import type {
+  BundleStatementCandidate,
   ImportableStatement,
   TaxInvoiceDraft,
   TaxInvoiceStatus,
@@ -16,7 +17,9 @@ import {
   findTaxPartnerByExactName,
   generateNewInvoiceNumber,
   importFromStatement,
+  importFromStatements,
   issueTaxInvoice,
+  listBundleCandidateStatements,
   listImportableStatements,
   listTaxInvoices,
   loadTaxInvoice,
@@ -66,6 +69,9 @@ export function TaxInvoiceEditor({
   const [isSendingEmail, setIsSendingEmail] = useState(false);
   const [emailHint, setEmailHint] = useState("");
   const previewRef = useRef<HTMLDivElement>(null);
+  // 같은 고객의 다른 프로젝트 거래명세서를 이 세금계산서에 함께 묶기(2026-11-11) — 후보 목록과 처리 중 표시.
+  const [bundleCandidates, setBundleCandidates] = useState<BundleStatementCandidate[]>([]);
+  const [isBundling, setIsBundling] = useState(false);
 
   // 거래처 기준정보 검색(2026-10-12) — 고르면 공급받는자 사업자 정보가 한 번에 채워진다.
   const [partnerQuery, setPartnerQuery] = useState("");
@@ -127,12 +133,17 @@ export function TaxInvoiceEditor({
     setDraft((d) => ({
       ...d,
       statementId,
+      bundledStatementIds: [],
       customerName: result.customerName,
       customerBusinessNumber: result.customerBusinessNumber,
       customerAddress: result.customerAddress,
       items: result.items,
     }));
     setSaveHint(`${statementNumber}에서 품목을 가져왔습니다.`);
+    setBundleCandidates([]);
+    listBundleCandidateStatements(statementId)
+      .then(setBundleCandidates)
+      .catch(() => setBundleCandidates([]));
 
     // 상호가 거래처 기준정보와 정확히 일치하면(한 곳일 때만) 사업자 정보를 자동으로 채운다.
     // 거래명세서에 이미 있던 값(등록번호/주소)은 덮어쓰지 않는다.
@@ -151,6 +162,30 @@ export function TaxInvoiceEditor({
       setSaveHint(
         `${statementNumber}에서 품목을 가져왔고, 거래처 기준정보("${partner.companyName}")로 사업자 정보를 채웠습니다.`
       );
+    }
+  }
+
+  // 후보 거래명세서를 묶거나 푼다 — 선택이 바뀔 때마다 대표 + 묶은 명세서들로 품명/공급가액/세액을 다시 합친다.
+  async function toggleBundle(statementId: string) {
+    if (!draft.statementId) return;
+    const nextIds = draft.bundledStatementIds.includes(statementId)
+      ? draft.bundledStatementIds.filter((id) => id !== statementId)
+      : [...draft.bundledStatementIds, statementId];
+    setIsBundling(true);
+    setSaveError("");
+    try {
+      const result = await importFromStatements([draft.statementId, ...nextIds]);
+      if (!result) return;
+      setDraft((d) => ({ ...d, bundledStatementIds: nextIds, items: result.items }));
+      setSaveHint(
+        nextIds.length > 0
+          ? `거래명세서 ${result.statements.length}건(${result.statements.map((x) => x.statementNumber).join(", ")})을 한 장으로 합쳤습니다.`
+          : "묶기를 풀었습니다. 대표 거래명세서 하나로 되돌렸습니다."
+      );
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : "묶는 중 오류가 발생했습니다.");
+    } finally {
+      setIsBundling(false);
     }
   }
 
@@ -174,6 +209,7 @@ export function TaxInvoiceEditor({
       }
       setCurrentInvoiceId(result.id);
       setCurrentStatus("requested");
+      setBundleCandidates([]);
       const partnerNote =
         result.partner === "created"
           ? " · 거래처 기준정보에 새로 등록했습니다."
@@ -254,6 +290,7 @@ export function TaxInvoiceEditor({
     setDraft({
       invoiceNumber,
       statementId: null,
+      bundledStatementIds: [],
       customerName: "",
       purposeType: "청구",
       customerBusinessNumber: "",
@@ -274,12 +311,14 @@ export function TaxInvoiceEditor({
     setSaveError("");
     setEmailInput("");
     setEmailHint("");
+    setBundleCandidates([]);
   }
 
   async function handleViewInvoice(invoiceId: string, status: TaxInvoiceStatus) {
     const result = await loadTaxInvoice(projectId, invoiceId);
     if (!result) return;
     setDraft(result);
+    setBundleCandidates([]);
     setCurrentInvoiceId(invoiceId);
     setCurrentStatus(status);
     setSaveHint("");
@@ -347,6 +386,53 @@ export function TaxInvoiceEditor({
                 </div>
               ))}
             </div>
+          </div>
+        )}
+
+        {!currentInvoiceId && draft.statementId && bundleCandidates.length > 0 && (
+          <div className="mb-4 rounded-md border border-[#2f7a4a] bg-white p-3 text-[11.5px]">
+            <div className="mb-1 font-semibold text-[#2f7a4a]">🔗 같은 고객의 다른 거래명세서도 한 장으로 묶기</div>
+            <p className="mb-2 text-neutral-500">
+              여러 상품(프로젝트)을 같은 고객에게 판매했다면 세금계산서를 한 장으로 발행할 수 있습니다. 체크한
+              거래명세서의 금액이 합쳐지고, 발행 완료 시 묶인 프로젝트들이 함께 다음 단계로 넘어갑니다.
+            </p>
+            <div className="flex flex-col gap-1">
+              {bundleCandidates.map((c) => (
+                <label
+                  key={c.id}
+                  className="flex cursor-pointer items-start gap-2 rounded bg-neutral-50 px-2 py-1.5 hover:bg-[#eef7f0]"
+                >
+                  <input
+                    type="checkbox"
+                    className="mt-0.5"
+                    checked={draft.bundledStatementIds.includes(c.id)}
+                    disabled={isBundling}
+                    onChange={() => toggleBundle(c.id)}
+                  />
+                  <span>
+                    <span className="font-bold text-[#8E1F3B]">{c.statementNumber}</span>{" "}
+                    <span className="text-neutral-500">({c.projectNumber})</span> {c.customerName}
+                    <span className="block text-neutral-500">
+                      {c.firstItemName || "품목 없음"}
+                      {c.itemCount > 1 ? ` 외 ${c.itemCount - 1}건` : ""} · {c.statementDate}
+                    </span>
+                  </span>
+                </label>
+              ))}
+            </div>
+            {draft.bundledStatementIds.length > 0 && (
+              <p className="mt-2 font-medium text-[#2f7a4a]">
+                ✅ 대표 포함 {draft.bundledStatementIds.length + 1}건을 한 장으로 합쳤습니다. 아래 품명·공급가액·세액을
+                확인하세요.
+              </p>
+            )}
+          </div>
+        )}
+
+        {currentInvoiceId && (draft.linkedStatements?.length ?? 0) > 1 && (
+          <div className="mb-4 rounded-md bg-[#eef7f0] p-3 text-[11.5px] text-[#2f7a4a]">
+            🔗 한 장으로 묶인 거래명세서:{" "}
+            {draft.linkedStatements?.map((l) => `${l.statementNumber}(${l.projectNumber})`).join(", ")}
           </div>
         )}
 

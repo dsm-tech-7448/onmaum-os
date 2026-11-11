@@ -1,6 +1,6 @@
 "use server";
 
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, or, sql } from "drizzle-orm";
 import { db } from "@/db";
 import {
   projects,
@@ -48,10 +48,20 @@ export async function deleteProject(projectId: string): Promise<DeleteProjectRes
     .limit(1);
   if (!project) return { ok: false, error: "프로젝트를 찾을 수 없습니다." };
 
+  // 이 프로젝트가 소유한 세금계산서뿐 아니라, 다른 프로젝트 소유 세금계산서에 이 프로젝트의 거래명세서가
+  // 묶여 있는 경우(2026-11-11 세금계산서 묶기)도 발행 완료면 삭제를 막는다.
   const issuedInvoice = await db
     .select({ id: taxInvoices.id, invoiceNumber: taxInvoices.invoiceNumber })
     .from(taxInvoices)
-    .where(and(eq(taxInvoices.projectId, projectId), eq(taxInvoices.status, "issued")))
+    .where(
+      and(
+        eq(taxInvoices.status, "issued"),
+        or(
+          eq(taxInvoices.projectId, projectId),
+          sql`exists (select 1 from ${transactionStatements} where ${transactionStatements.taxInvoiceId} = ${taxInvoices.id} and ${transactionStatements.projectId} = ${projectId})`
+        )
+      )
+    )
     .limit(1);
   if (issuedInvoice.length > 0) {
     return {
@@ -77,10 +87,19 @@ export async function deleteProject(projectId: string): Promise<DeleteProjectRes
 
   await db.transaction(async (tx) => {
     // 순환 참조 끊기: tax_invoices를 지우기 전에 transaction_statements → tax_invoices 참조를 먼저 없앤다.
+    // 이 프로젝트가 소유한 세금계산서에 다른 프로젝트의 거래명세서가 묶여 있으면 그 참조도 함께 끊는다.
     await tx
       .update(transactionStatements)
       .set({ taxInvoiceId: null })
-      .where(eq(transactionStatements.projectId, projectId));
+      .where(
+        or(
+          eq(transactionStatements.projectId, projectId),
+          inArray(
+            transactionStatements.taxInvoiceId,
+            tx.select({ id: taxInvoices.id }).from(taxInvoices).where(eq(taxInvoices.projectId, projectId))
+          )
+        )
+      );
 
     await tx.delete(taxInvoices).where(eq(taxInvoices.projectId, projectId)); // cascade: tax_invoice_items
     await tx.delete(production).where(eq(production.projectId, projectId));

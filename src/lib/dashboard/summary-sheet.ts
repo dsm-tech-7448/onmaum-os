@@ -416,11 +416,15 @@ export async function getSummaryRows(options?: { includeHistorical?: boolean }):
     : [];
   const statementById = new Map(statementRows.map((s) => [s.id, s]));
 
+  // 거래명세서 → 세금계산서 연결은 transaction_statements.tax_invoice_id로 본다 — 같은 고객의 여러 프로젝트
+  // 거래명세서를 세금계산서 한 장에 묶은 경우(2026-11-11) 대표 명세서(tax_invoices.statement_id)뿐 아니라 묶인
+  // 모든 명세서에 같은 발행일이 나와야 한다.
   const taxInvoiceRows = allStatementIds.length
     ? await db
-        .select({ statementId: taxInvoices.statementId, issuedAt: taxInvoices.issuedAt })
-        .from(taxInvoices)
-        .where(inArray(taxInvoices.statementId, allStatementIds))
+        .select({ statementId: transactionStatements.id, issuedAt: taxInvoices.issuedAt })
+        .from(transactionStatements)
+        .innerJoin(taxInvoices, eq(transactionStatements.taxInvoiceId, taxInvoices.id))
+        .where(inArray(transactionStatements.id, allStatementIds))
     : [];
   const taxInvoiceByStatementId = new Map(taxInvoiceRows.map((r) => [r.statementId, r.issuedAt]));
 

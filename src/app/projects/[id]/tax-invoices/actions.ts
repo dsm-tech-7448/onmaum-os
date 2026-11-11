@@ -1,6 +1,6 @@
 "use server";
 
-import { and, asc, desc, eq, ilike, inArray, isNull, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, ilike, inArray, isNull, ne, or, sql } from "drizzle-orm";
 import { db } from "@/db";
 import {
   taxInvoices,
@@ -9,6 +9,8 @@ import {
   statementItems,
   companyProfile,
   taxInvoicePartners,
+  projects,
+  projectStages,
 } from "@/db/schema";
 import { getSession } from "@/lib/auth/session";
 import { generateInvoiceNumber } from "@/lib/tax-invoices/invoice-number";
@@ -21,7 +23,9 @@ import { issueTaxInvoiceViaPopbill, sendTaxInvoiceEmailViaPopbill } from "@/lib/
 import { isPopbillConfigured } from "@/lib/popbill/client";
 import { applyStatementAdjustment, mergeToSingleItem } from "@/lib/tax-invoices/merge-items";
 import type {
+  BundleStatementCandidate,
   ImportableStatement,
+  LinkedStatementInfo,
   TaxInvoiceDraft,
   TaxInvoiceItemDraft,
   TaxPartner,
@@ -33,6 +37,19 @@ async function requireSession() {
   const session = await getSession();
   if (!session) throw new Error("로그인이 필요합니다.");
   return session;
+}
+
+// 세금계산서는 대표 거래명세서가 속한 프로젝트(tax_invoices.project_id)에 속하지만, 같은 고객의 다른 프로젝트
+// 거래명세서를 함께 묶은 경우(2026-11-11) 그 프로젝트들에서도 같은 세금계산서가 보이고 처리돼야 한다.
+function invoiceInProject(projectId: string) {
+  return or(
+    eq(taxInvoices.projectId, projectId),
+    sql`exists (select 1 from ${transactionStatements} where ${transactionStatements.taxInvoiceId} = ${taxInvoices.id} and ${transactionStatements.projectId} = ${projectId})`
+  );
+}
+
+function normalizeName(name: string | null | undefined): string {
+  return (name ?? "").replace(/\s+/g, "").toLowerCase();
 }
 
 export async function generateNewInvoiceNumber(): Promise<string> {
@@ -86,50 +103,164 @@ export async function listImportableStatements(projectId: string): Promise<Impor
     }));
 }
 
-export async function importFromStatement(statementId: string): Promise<{
+export type ImportedStatementData = {
   customerName: string;
   customerBusinessNumber: string;
   customerAddress: string;
   items: TaxInvoiceItemDraft[];
-} | null> {
+  statements: LinkedStatementInfo[];
+};
+
+// 거래명세서 하나 또는 여러 개(같은 고객의 다른 프로젝트 것을 함께 묶을 때)의 품목을 세금계산서 한 줄로
+// 합쳐 가져온다. 첫 번째 id가 대표(고객 정보를 이어받는다). 명세서마다 절삭/조정을 반영한 공급가액·세액을
+// 구해 더하고, 품명은 모든 품목 줄을 합쳐 "첫 품명 외 N건"으로 만든다.
+export async function importFromStatements(statementIds: string[]): Promise<ImportedStatementData | null> {
   await requireSession();
 
-  const [statement] = await db
-    .select()
+  const ids = [...new Set(statementIds)];
+  if (ids.length === 0) return null;
+
+  const stmtRows = await db
+    .select({ statement: transactionStatements, projectNumber: projects.projectNumber })
     .from(transactionStatements)
-    .where(eq(transactionStatements.id, statementId))
-    .limit(1);
-  if (!statement) return null;
+    .innerJoin(projects, eq(transactionStatements.projectId, projects.id))
+    .where(inArray(transactionStatements.id, ids));
+  const byId = new Map(stmtRows.map((r) => [r.statement.id, r]));
+  const ordered = ids.map((id) => byId.get(id)).filter((r): r is NonNullable<typeof r> => !!r);
+  if (ordered.length === 0) return null;
+  const primary = ordered[0].statement;
 
   const itemRows = await db
     .select()
     .from(statementItems)
-    .where(eq(statementItems.statementId, statementId))
+    .where(inArray(statementItems.statementId, ids))
     .orderBy(statementItems.sortOrder);
 
+  let supply = 0;
+  let tax = 0;
+  const allRows: typeof itemRows = [];
+  for (const { statement } of ordered) {
+    const rows = itemRows.filter((r) => r.statementId === statement.id);
+    const merged = mergeToSingleItem(rows);
+    // 거래명세서에 절삭/조정이 있으면 세금계산서 합계도 명세서 합계와 같아지도록 공급가액/세액에 반영한다.
+    const adj = applyStatementAdjustment(rows, Number(statement.adjustmentAmount ?? 0) || 0, merged);
+    supply += adj.supply;
+    tax += adj.tax;
+    allRows.push(...rows);
+  }
   // 거래명세서 품목이 몇 줄이든 세금계산서엔 품명 하나로 합쳐서 가져온다(2026-09-22).
-  const merged = mergeToSingleItem(itemRows);
-  // 거래명세서에 절삭/조정이 있으면 세금계산서 합계도 명세서 합계와 같아지도록 공급가액/세액에 반영한다.
-  const { supply, tax } = applyStatementAdjustment(itemRows, Number(statement.adjustmentAmount ?? 0) || 0, merged);
+  const mergedAll = mergeToSingleItem(allRows);
 
   return {
-    customerName: statement.customerName,
+    customerName: primary.customerName,
     // 거래명세서에 이미 입력된 값이 있으면(사업자등록증을 그때 이미 받은 경우) 그대로 이어받는다.
-    customerBusinessNumber: statement.customerBusinessNumber ?? "",
-    customerAddress: statement.customerAddress ?? "",
+    customerBusinessNumber: primary.customerBusinessNumber ?? "",
+    customerAddress: primary.customerAddress ?? "",
     items:
-      merged.name === ""
+      mergedAll.name === ""
         ? []
         : [
             {
               uid: "item-1",
-              name: merged.name,
-              qty: merged.qty,
+              name: mergedAll.name,
+              qty: mergedAll.qty,
               supplyOverride: supply ? String(Math.round(supply)) : "",
               taxOverride: tax ? String(Math.round(tax)) : "",
             },
           ],
+    statements: ordered.map((r) => ({
+      id: r.statement.id,
+      statementNumber: r.statement.statementNumber,
+      projectNumber: r.projectNumber,
+    })),
   };
+}
+
+export async function importFromStatement(statementId: string): Promise<ImportedStatementData | null> {
+  return importFromStatements([statementId]);
+}
+
+// 같은 고객의 "다른" 거래명세서 중 이 세금계산서에 함께 묶을 수 있는 것(2026-11-11) — 아직 세금계산서가
+// 안 붙었고, 현금영수증이 발행되지 않았고, 소속 프로젝트가 거래명세서 발송 단계 이상인 것만. 같은 고객은
+// 프로젝트의 고객(customers) 일치 또는 거래명세서 수신 고객사명 일치(공백 무시)로 본다.
+export async function listBundleCandidateStatements(primaryStatementId: string): Promise<BundleStatementCandidate[]> {
+  await requireSession();
+
+  const [primary] = await db
+    .select({
+      customerName: transactionStatements.customerName,
+      customerId: projects.customerId,
+    })
+    .from(transactionStatements)
+    .innerJoin(projects, eq(transactionStatements.projectId, projects.id))
+    .where(eq(transactionStatements.id, primaryStatementId))
+    .limit(1);
+  if (!primary) return [];
+
+  const [requiredStage] = await db
+    .select()
+    .from(projectStages)
+    .where(eq(projectStages.stageCode, "statement_sent"))
+    .limit(1);
+
+  const rows = await db
+    .select({
+      id: transactionStatements.id,
+      statementNumber: transactionStatements.statementNumber,
+      customerName: transactionStatements.customerName,
+      statementDate: transactionStatements.statementDate,
+      cashReceiptIssuedAt: transactionStatements.cashReceiptIssuedAt,
+      projectNumber: projects.projectNumber,
+      projectCustomerId: projects.customerId,
+      stageSortOrder: projectStages.sortOrder,
+    })
+    .from(transactionStatements)
+    .innerJoin(projects, eq(transactionStatements.projectId, projects.id))
+    .leftJoin(projectStages, eq(projects.currentStageId, projectStages.id))
+    .where(and(isNull(transactionStatements.taxInvoiceId), ne(transactionStatements.id, primaryStatementId)))
+    .orderBy(desc(transactionStatements.createdAt));
+
+  const targetKey = normalizeName(primary.customerName);
+  const candidates = rows.filter(
+    (r) =>
+      !r.cashReceiptIssuedAt &&
+      (r.projectCustomerId === primary.customerId || normalizeName(r.customerName) === targetKey) &&
+      (requiredStage ? (r.stageSortOrder ?? 0) >= requiredStage.sortOrder : true)
+  );
+  if (candidates.length === 0) return [];
+
+  const items = await db
+    .select({
+      statementId: statementItems.statementId,
+      name: statementItems.name,
+      lineType: statementItems.lineType,
+    })
+    .from(statementItems)
+    .where(
+      inArray(
+        statementItems.statementId,
+        candidates.map((c) => c.id)
+      )
+    )
+    .orderBy(statementItems.sortOrder);
+  const countMap = new Map<string, number>();
+  const firstProduct = new Map<string, string>();
+  const firstAny = new Map<string, string>();
+  for (const it of items) {
+    countMap.set(it.statementId, (countMap.get(it.statementId) ?? 0) + 1);
+    if (it.lineType === "product" && !firstProduct.has(it.statementId)) firstProduct.set(it.statementId, it.name);
+    if (!firstAny.has(it.statementId)) firstAny.set(it.statementId, it.name);
+  }
+
+  return candidates.map((c) => ({
+    id: c.id,
+    statementNumber: c.statementNumber,
+    projectNumber: c.projectNumber,
+    customerName: c.customerName,
+    statementDate: c.statementDate,
+    itemCount: countMap.get(c.id) ?? 0,
+    firstItemName: firstProduct.get(c.id) ?? firstAny.get(c.id) ?? "",
+  }));
 }
 
 function toStatus(value: string): TaxInvoiceStatus {
@@ -142,7 +273,7 @@ export async function listTaxInvoices(projectId: string): Promise<TaxInvoiceSumm
   const rows = await db
     .select()
     .from(taxInvoices)
-    .where(eq(taxInvoices.projectId, projectId))
+    .where(invoiceInProject(projectId))
     .orderBy(desc(taxInvoices.createdAt));
 
   if (rows.length === 0) return [];
@@ -178,7 +309,7 @@ export async function loadTaxInvoice(projectId: string, invoiceId: string): Prom
   const [row] = await db
     .select()
     .from(taxInvoices)
-    .where(and(eq(taxInvoices.id, invoiceId), eq(taxInvoices.projectId, projectId)))
+    .where(and(eq(taxInvoices.id, invoiceId), invoiceInProject(projectId)))
     .limit(1);
   if (!row) return null;
 
@@ -192,9 +323,22 @@ export async function loadTaxInvoice(projectId: string, invoiceId: string): Prom
   // 있을 수 있다 — 불러올 때 항상 한 줄로 합쳐서 보여준다(다시 저장하면 실제로 한 줄이 된다).
   const merged = mergeToSingleItem(itemRows);
 
+  const linkedStatements = await db
+    .select({
+      id: transactionStatements.id,
+      statementNumber: transactionStatements.statementNumber,
+      projectNumber: projects.projectNumber,
+    })
+    .from(transactionStatements)
+    .innerJoin(projects, eq(transactionStatements.projectId, projects.id))
+    .where(eq(transactionStatements.taxInvoiceId, row.id))
+    .orderBy(transactionStatements.statementNumber);
+
   return {
     invoiceNumber: row.invoiceNumber,
     statementId: row.statementId,
+    bundledStatementIds: [],
+    linkedStatements,
     customerName: row.customerName,
     purposeType: row.purposeType === "영수" ? "영수" : "청구",
     customerBusinessNumber: row.customerBusinessNumber ?? "",
@@ -379,8 +523,15 @@ async function requestTaxInvoiceImpl(
   // 증빙이 되므로 막는다(2026-10-19). 세금계산서가 정말 필요하면 거래명세서 화면에서 현금영수증
   // 발행일을 먼저 지운다.
   const [linkedStatement] = await db
-    .select({ cashReceiptIssuedAt: transactionStatements.cashReceiptIssuedAt, statementNumber: transactionStatements.statementNumber })
+    .select({
+      cashReceiptIssuedAt: transactionStatements.cashReceiptIssuedAt,
+      statementNumber: transactionStatements.statementNumber,
+      taxInvoiceId: transactionStatements.taxInvoiceId,
+      customerName: transactionStatements.customerName,
+      customerId: projects.customerId,
+    })
     .from(transactionStatements)
+    .innerJoin(projects, eq(transactionStatements.projectId, projects.id))
     .where(eq(transactionStatements.id, draft.statementId))
     .limit(1);
   if (linkedStatement?.cashReceiptIssuedAt) {
@@ -388,9 +539,47 @@ async function requestTaxInvoiceImpl(
       `${linkedStatement.statementNumber}은 현금영수증이 이미 발행된 거래(${linkedStatement.cashReceiptIssuedAt})라 세금계산서를 발행할 수 없습니다. 세금계산서로 바꿔야 한다면 거래명세서 화면에서 현금영수증 발행일을 먼저 지워주세요.`
     );
   }
+  if (linkedStatement?.taxInvoiceId) {
+    throw new Error(`${linkedStatement.statementNumber}은 이미 다른 세금계산서에 연결돼 있습니다.`);
+  }
 
   // 세금계산서는 거래명세서가 발송된 뒤에만 요청할 수 있다 (6. 거래명세서 발송 완료 이후).
   await assertProjectReachedStage(projectId, "statement_sent");
+
+  // 같은 고객의 다른 프로젝트 거래명세서를 함께 묶는 경우(2026-11-11) — 화면 값을 믿지 않고 서버에서 다시 검사한다:
+  // 존재, 아직 다른 세금계산서에 안 묶임, 현금영수증 미발행, 같은 고객, 소속 프로젝트가 거래명세서 발송 단계 이상.
+  const bundledIds = [...new Set(draft.bundledStatementIds ?? [])].filter((id) => id !== draft.statementId);
+  if (bundledIds.length > 0) {
+    const bundledRows = await db
+      .select({
+        id: transactionStatements.id,
+        statementNumber: transactionStatements.statementNumber,
+        taxInvoiceId: transactionStatements.taxInvoiceId,
+        cashReceiptIssuedAt: transactionStatements.cashReceiptIssuedAt,
+        customerName: transactionStatements.customerName,
+        projectId: transactionStatements.projectId,
+        customerId: projects.customerId,
+      })
+      .from(transactionStatements)
+      .innerJoin(projects, eq(transactionStatements.projectId, projects.id))
+      .where(inArray(transactionStatements.id, bundledIds));
+    if (bundledRows.length !== bundledIds.length) {
+      throw new Error("함께 묶으려는 거래명세서를 찾을 수 없습니다. 화면을 새로고침한 뒤 다시 시도해주세요.");
+    }
+    for (const b of bundledRows) {
+      if (b.taxInvoiceId) throw new Error(`${b.statementNumber}은 이미 다른 세금계산서에 연결돼 있습니다.`);
+      if (b.cashReceiptIssuedAt) {
+        throw new Error(`${b.statementNumber}은 현금영수증이 이미 발행된 거래라 세금계산서에 묶을 수 없습니다.`);
+      }
+      const sameCustomer =
+        b.customerId === linkedStatement?.customerId ||
+        normalizeName(b.customerName) === normalizeName(linkedStatement?.customerName);
+      if (!sameCustomer) {
+        throw new Error(`${b.statementNumber}은 다른 고객(${b.customerName})의 거래명세서라 함께 묶을 수 없습니다.`);
+      }
+      await assertProjectReachedStage(b.projectId, "statement_sent");
+    }
+  }
 
   const [created] = await db
     .insert(taxInvoices)
@@ -439,7 +628,11 @@ async function requestTaxInvoiceImpl(
   if (draft.customerBusinessNumber.trim()) statementUpdate.customerBusinessNumber = draft.customerBusinessNumber.trim();
   if (draft.customerAddress.trim()) statementUpdate.customerAddress = draft.customerAddress.trim();
 
-  await db.update(transactionStatements).set(statementUpdate).where(eq(transactionStatements.id, draft.statementId));
+  // 대표 거래명세서와 함께 묶은 거래명세서 모두에 이 세금계산서를 연결한다.
+  await db
+    .update(transactionStatements)
+    .set(statementUpdate)
+    .where(inArray(transactionStatements.id, [draft.statementId, ...bundledIds]));
 
   let partner: PartnerSaveResult = "skipped";
   try {
@@ -474,7 +667,7 @@ export async function confirmTaxInvoice(projectId: string, invoiceId: string): P
   const [row] = await db
     .select({ id: taxInvoices.id })
     .from(taxInvoices)
-    .where(and(eq(taxInvoices.id, invoiceId), eq(taxInvoices.projectId, projectId)))
+    .where(and(eq(taxInvoices.id, invoiceId), invoiceInProject(projectId)))
     .limit(1);
   if (!row) throw new Error("세금계산서를 찾을 수 없습니다.");
 
@@ -497,7 +690,7 @@ export async function issueTaxInvoice(projectId: string, invoiceId: string): Pro
   const [row] = await db
     .select({ id: taxInvoices.id, customerBusinessNumber: taxInvoices.customerBusinessNumber })
     .from(taxInvoices)
-    .where(and(eq(taxInvoices.id, invoiceId), eq(taxInvoices.projectId, projectId)))
+    .where(and(eq(taxInvoices.id, invoiceId), invoiceInProject(projectId)))
     .limit(1);
   if (!row) throw new Error("세금계산서를 찾을 수 없습니다.");
   // 사업자등록번호 없이는 실제로 세금계산서를 발행할 수 없다 — 사업자등록증을 받은 뒤
@@ -535,12 +728,29 @@ export async function issueTaxInvoice(projectId: string, invoiceId: string): Pro
   await advanceProjectStage(projectId, "tax_invoice_issued", session.userId);
   // 거래명세서에 다른 프로젝트의 견적서가 묶여 있으면 그 프로젝트들도 함께 진행시킨다.
   const [invoiceRow] = await db
-    .select({ statementId: taxInvoices.statementId })
+    .select({ statementId: taxInvoices.statementId, projectId: taxInvoices.projectId })
     .from(taxInvoices)
     .where(eq(taxInvoices.id, invoiceId))
     .limit(1);
   if (invoiceRow?.statementId) {
     await advanceLinkedProjects(invoiceRow.statementId, projectId, "tax_invoice_issued", session.userId);
+  }
+  // 같은 고객의 다른 프로젝트 거래명세서를 이 세금계산서에 함께 묶은 경우(2026-11-11) 그 프로젝트들(과 그
+  // 명세서에 묶인 다른 프로젝트 견적서)도 같은 단계로 진행시킨다.
+  const linkedStatements = await db
+    .select({ id: transactionStatements.id, projectId: transactionStatements.projectId })
+    .from(transactionStatements)
+    .where(eq(transactionStatements.taxInvoiceId, invoiceId));
+  const handled = new Set([projectId]);
+  for (const ls of linkedStatements) {
+    if (!handled.has(ls.projectId)) {
+      await advanceProjectStage(ls.projectId, "tax_invoice_issued", session.userId);
+      handled.add(ls.projectId);
+    }
+    await advanceLinkedProjects(ls.id, ls.projectId, "tax_invoice_issued", session.userId);
+  }
+  if (invoiceRow && !handled.has(invoiceRow.projectId)) {
+    await advanceProjectStage(invoiceRow.projectId, "tax_invoice_issued", session.userId);
   }
 
   return result;
@@ -561,7 +771,7 @@ export async function sendTaxInvoiceEmail(
   const [row] = await db
     .select({ invoiceNumber: taxInvoices.invoiceNumber, status: taxInvoices.status })
     .from(taxInvoices)
-    .where(and(eq(taxInvoices.id, invoiceId), eq(taxInvoices.projectId, projectId)))
+    .where(and(eq(taxInvoices.id, invoiceId), invoiceInProject(projectId)))
     .limit(1);
   if (!row) throw new Error("세금계산서를 찾을 수 없습니다.");
   if (row.status !== "issued") {

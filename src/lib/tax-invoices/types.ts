@@ -11,9 +11,20 @@ export type TaxInvoiceItemDraft = {
 export type TaxInvoiceStatus = "requested" | "confirmed" | "issued";
 export type TaxInvoicePurposeType = "청구" | "영수";
 
+// 한 세금계산서에 묶인 거래명세서 한 건 — 화면 표시용.
+export type LinkedStatementInfo = {
+  id: string;
+  statementNumber: string;
+  projectNumber: string;
+};
+
 export type TaxInvoiceDraft = {
   invoiceNumber: string;
+  // 대표 거래명세서 — 이 프로젝트 소속. 세금계산서는 이 프로젝트에 속한다.
   statementId: string | null;
+  // 같은 고객의 다른 프로젝트 거래명세서를 함께 묶어 한 장으로 발행할 때(2026-11-11), 대표 말고 추가로
+  // 묶는 거래명세서 id들. 발행 요청 때 서버가 같은 고객인지·이미 다른 세금계산서에 묶이지 않았는지 다시 검사한다.
+  bundledStatementIds: string[];
   customerName: string;
   // 영수/청구 — 이미 대금을 받았으면 "영수", 아직 안 받고 청구하는 거면 "청구"(기본값).
   purposeType: TaxInvoicePurposeType;
@@ -38,6 +49,19 @@ export type TaxInvoiceDraft = {
   // 읽기 전용 — "이메일로 발송" 최근 성공 기록(저장 대상 아님, loadTaxInvoice가 채워줌).
   lastEmailSentTo?: string;
   lastEmailSentAt?: string;
+  // 읽기 전용 — 저장된 세금계산서에 묶여 있는 모든 거래명세서(대표 포함, loadTaxInvoice가 채워줌).
+  linkedStatements?: LinkedStatementInfo[];
+};
+
+// 같은 고객의 다른 프로젝트 거래명세서 중 이 세금계산서에 함께 묶을 수 있는 후보.
+export type BundleStatementCandidate = {
+  id: string;
+  statementNumber: string;
+  projectNumber: string;
+  customerName: string;
+  statementDate: string;
+  itemCount: number;
+  firstItemName: string;
 };
 
 export type TaxInvoiceSummary = {

@@ -5,6 +5,7 @@ export function blankTaxInvoiceDraft(invoiceNumber: string): TaxInvoiceDraft {
   return {
     invoiceNumber,
     statementId: null,
+    bundledStatementIds: [],
     customerName: "",
     purposeType: "청구",
     customerBusinessNumber: "",
