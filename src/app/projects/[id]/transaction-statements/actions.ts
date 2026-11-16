@@ -385,6 +385,45 @@ async function saveStatementImpl(projectId: string, draft: StatementDraft): Prom
     );
   }
 
+  // 같은 내용의 거래명세서가 몇 초~몇 분 간격으로 여러 장 저장되는 사고가 반복돼(2026-11-16, Summary 매출이
+  // 두세 배로 잡힘) 막는다 — 같은 프로젝트에서 직전 3분 안에 같은 견적·같은 품목/수량/단가로 저장된 거래명세서가
+  // 있으면 새로 만들지 않고 알려준다. 분할 출고처럼 일부러 같은 내용을 또 보내야 하면 3분 뒤에 저장하거나
+  // 수량을 바꾼다.
+  const itemSignature = (rows: { name: string; qty: string | null; price: string | null; supplyOverride: string | null }[]) =>
+    rows
+      .map((r) => `${r.name.trim()}|${Number(r.qty ?? 0)}|${Number(r.price ?? 0)}|${Number(r.supplyOverride ?? 0)}`)
+      .sort()
+      .join("~");
+  const recent = await db
+    .select({ id: transactionStatements.id, statementNumber: transactionStatements.statementNumber })
+    .from(transactionStatements)
+    .where(
+      and(
+        eq(transactionStatements.projectId, projectId),
+        eq(transactionStatements.quoteId, draft.quoteId),
+        sql`${transactionStatements.createdAt} > now() - interval '3 minutes'`
+      )
+    );
+  if (recent.length > 0) {
+    const recentItems = await db
+      .select()
+      .from(statementItems)
+      .where(inArray(statementItems.statementId, recent.map((r) => r.id)));
+    const draftSig = itemSignature(
+      draft.items
+        .filter((it) => it.name.trim() !== "")
+        .map((it) => ({ name: it.name, qty: it.qty || null, price: it.price || null, supplyOverride: it.supplyOverride || null }))
+    );
+    for (const r of recent) {
+      const sig = itemSignature(recentItems.filter((i) => i.statementId === r.id));
+      if (sig === draftSig) {
+        throw new Error(
+          `방금(3분 이내) 같은 내용으로 저장된 거래명세서가 있습니다 (${r.statementNumber}). 같은 문서를 두 번 저장하면 Summary 매출이 두 배로 잡힙니다 — 내용을 고치려면 저장된 거래명세서를 불러와 "수정 저장"을 쓰세요.`
+        );
+      }
+    }
+  }
+
   // 거래명세서는 원래 발주(5단계) 이후가 기본 순서지만, 고객 요청으로 견적서와
   // 거래명세서를 함께 보내야 하는 경우 발주보다 먼저 보낼 수 있다 — 최소 요건은 견적이
   // 확정돼 있는 것뿐(quoteId가 이미 그 조건을 보장하지만, 명시적으로 한 번 더 확인).

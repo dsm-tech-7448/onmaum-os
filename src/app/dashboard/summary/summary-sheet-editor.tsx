@@ -900,7 +900,17 @@ export function SummarySheetEditor({
                         r.outAmount ? `${Number(r.outAmount).toLocaleString("ko-KR")}원` : "-"
                       )}
                     </td>
-                    <td className="px-2 py-1.5 text-right font-medium">{wonWithVat(r.profit)}</td>
+                    <td className="px-2 py-1.5 text-right font-medium">
+                      {wonWithVat(r.profit)}
+                      {r.statementCount && r.statementCount > 1 && (
+                        <span
+                          className="ml-1 rounded bg-amber-100 px-1 py-0.5 align-middle text-[10px] font-medium text-amber-800"
+                          title={`이 품목에 거래명세서 ${r.statementCount}장이 걸려 매출이 합쳐졌습니다. 같은 내용을 중복 저장한 것이라면 매출·이익이 실제보다 크게 나옵니다. 분할 출고라면 정상입니다.`}
+                        >
+                          명세서 {r.statementCount}건 합산
+                        </span>
+                      )}
+                    </td>
                     <td className="px-2 py-1.5 text-right text-neutral-500">{pct(r.marginRate)}</td>
                   </tr>
                 ))

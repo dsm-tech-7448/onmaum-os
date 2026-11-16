@@ -278,7 +278,6 @@ export function StatementEditor({
         return;
       }
       setSaveHint(`저장(발송)됨: ${draft.statementNumber} (${draft.customerName}) — 총 ${draft.items.length}개 품목`);
-      const newNumber = await generateNewStatementNumber();
       setStatements((prev) => [
         {
           id: result.id,
@@ -291,7 +290,11 @@ export function StatementEditor({
         },
         ...prev,
       ]);
-      setDraft((d) => ({ ...d, id: undefined, statementNumber: newNumber }));
+      // 저장 뒤에도 방금 저장한 거래명세서를 그대로 보여준다(2026-11-16) — 예전에는 같은 내용에 새 번호만 받아 저장
+      // 버튼이 다시 켜져서, 한 번 더 누르면 같은 내용의 거래명세서가 또 만들어졌다(Summary 매출 중복). 품목 줄이
+      // DB id를 받도록 다시 불러온다. 다음 문서는 "새 거래명세서로 시작"으로 만든다.
+      const reloaded = await loadStatement(projectId, result.id);
+      setDraft(reloaded ? reloaded : (d) => ({ ...d, id: result.id }));
       router.refresh();
     } catch (err) {
       setSaveError(err instanceof Error ? err.message : "저장에 실패했습니다.");

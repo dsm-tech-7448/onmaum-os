@@ -41,6 +41,9 @@ export type SummaryRow = {
   poReqDate: string; // 발송요청일 — 발주서(공급업체용). 공급업체 사정으로 바뀌면 summary_overrides.req_date로 정정 가능.
   customerRequests: string; // 고객 요청사항 — project_requests(source=customer, 미해결) 합친 텍스트
   statementId: string | null;
+  // 이 행에 매출이 합산된 거래명세서 수 — 2 이상이면 같은 품목에 명세서가 여러 장 걸려 매출이 합쳐진 것(중복
+  // 저장 의심 또는 분할 출고)이라 화면에 표시한다(2026-11-16). 명세서가 없거나 1장이면 비어 있다.
+  statementCount?: number;
   paidCash: string; // 고객 입금 - 현금
   paidCard: string; // 고객 입금 - 카드
   taxInvoiceIssuedAt: string; // 영수증 - 세금계산서 (읽기 전용)
@@ -428,13 +431,16 @@ export async function getSummaryRows(options?: { includeHistorical?: boolean }):
     : [];
   const taxInvoiceByStatementId = new Map(taxInvoiceRows.map((r) => [r.statementId, r.issuedAt]));
 
-  const matchByQuoteItemId = new Map<string, { statementId: string; revenue: number }>();
+  const matchByQuoteItemId = new Map<string, { statementId: string; revenue: number; statementIds: Set<string> }>();
   for (const r of matchedStmtItems) {
     if (!r.quoteItemId) continue;
     const existing = matchByQuoteItemId.get(r.quoteItemId);
+    const statementIds = existing?.statementIds ?? new Set<string>();
+    statementIds.add(r.statementId);
     matchByQuoteItemId.set(r.quoteItemId, {
       statementId: r.statementId,
       revenue: (existing?.revenue ?? 0) + r.revenue,
+      statementIds,
     });
   }
 
@@ -526,6 +532,7 @@ export async function getSummaryRows(options?: { includeHistorical?: boolean }):
         poReqDate: po?.reqDate ?? "",
         customerRequests: customerRequestsFor(quote.projectId, quote.id),
         statementId: match?.statementId ?? null,
+        statementCount: match && match.statementIds.size > 1 ? match.statementIds.size : undefined,
         paidCash: statement?.paidCash ?? "",
         paidCard: statement?.paidCard ?? "",
         taxInvoiceIssuedAt: match?.statementId
