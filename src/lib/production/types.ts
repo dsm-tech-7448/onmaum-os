@@ -4,6 +4,7 @@ export type ProductionDraft = {
   carrier: string;
   trackingNumber: string;
   actualShipDate: string;
+  customerNotified: boolean; // 고객에게 발송 통보했는지(체크만 — 알림톡 아님)
   note: string;
 };
 
@@ -16,6 +17,7 @@ export type ProductionSummary = {
   carrier: string | null;
   trackingNumber: string | null;
   actualShipDate: string | null;
+  customerNotifiedAt: string | null;
   note: string | null;
   updatedAt: string;
 };

@@ -97,6 +97,7 @@ export async function getStalledProjects(): Promise<StalledProject[]> {
 }
 
 export type OverdueUnshippedPo = {
+  poId: string;
   projectId: string;
   projectNumber: string;
   customerName: string;
@@ -152,7 +153,11 @@ async function getUnshippedPosWhere(matchesDate: (reqDate: string) => boolean): 
   const overrideReqDateByRowKey = new Map(overrideRows.map((o) => [o.rowKey, o.reqDate]));
 
   const shippedRows = await db
-    .select({ poId: production.poId, trackingNumber: production.trackingNumber })
+    .select({
+      poId: production.poId,
+      trackingNumber: production.trackingNumber,
+      customerNotifiedAt: production.customerNotifiedAt,
+    })
     .from(production)
     .where(
       inArray(
@@ -160,8 +165,11 @@ async function getUnshippedPosWhere(matchesDate: (reqDate: string) => boolean): 
         candidates.map((c) => c.id)
       )
     );
+  // 송장번호가 있거나 고객 통보를 체크했으면 "처리된" 발주다(송장번호 입력은 이제 선택).
   const shippedPoIds = new Set(
-    shippedRows.filter((s) => s.poId && s.trackingNumber?.trim()).map((s) => s.poId as string)
+    shippedRows
+      .filter((s) => s.poId && (s.trackingNumber?.trim() || s.customerNotifiedAt))
+      .map((s) => s.poId as string)
   );
 
   return candidates
@@ -170,6 +178,7 @@ async function getUnshippedPosWhere(matchesDate: (reqDate: string) => boolean): 
       const rowKey = c.quoteItemId ?? `po-${c.id}`;
       const effectiveReqDate = overrideReqDateByRowKey.get(rowKey) || c.reqDate || "";
       return {
+        poId: c.id,
         projectId: c.projectId,
         projectNumber: c.projectNumber,
         customerName: c.customerName,

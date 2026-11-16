@@ -28,6 +28,7 @@ function blankDraft(): ProductionDraft {
     carrier: "",
     trackingNumber: "",
     actualShipDate: "",
+    customerNotified: false,
     note: "",
   };
 }
@@ -69,6 +70,7 @@ export function ProductionEditor({
       carrier: batch.carrier ?? "",
       trackingNumber: batch.trackingNumber ?? "",
       actualShipDate: batch.actualShipDate ?? "",
+      customerNotified: !!batch.customerNotifiedAt,
       note: batch.note ?? "",
     });
     setSelectedPO(
@@ -102,9 +104,11 @@ export function ProductionEditor({
       setNotifications(nextNotifications);
       setDraft((d) => ({ ...d, id: result.id }));
       setSaveHint(
-        result.notified
-          ? "저장됨 — 송장번호가 처음 등록되어 배송일정안내 알림이 생성되고 프로젝트가 8단계로 전환됐습니다."
-          : "저장됨."
+        result.stageAdvanced
+          ? "저장됨 — 고객 통보가 체크되어 프로젝트가 8단계로 전환됐습니다."
+          : result.notified
+            ? "저장됨 — 고객 통보가 체크됐습니다. (세금계산서 발행 전이라 단계는 그대로입니다.)"
+            : "저장됨."
       );
       if (result.notified) router.refresh();
     } catch (err) {
@@ -119,9 +123,9 @@ export function ProductionEditor({
       <div className="w-[440px] shrink-0 rounded-xl border border-neutral-200 bg-white p-5">
         <h2 className="mb-1 text-sm font-semibold text-neutral-900">제작·배송 현황</h2>
         <p className="mb-4 text-xs text-neutral-500">
-          발주서에 적힌 발송요청일에 공급업체가 실제로 보냈는지 확인하고, 업체가 알려준 송장번호를
-          입력하세요. 송장번호를 처음 입력하는 순간에만 배송일정안내 알림이 자동 생성되고 프로젝트가
-          &ldquo;8. 배송일정 안내&rdquo;로 전환됩니다 — 세금계산서 발행이 끝나야 가능합니다.
+          고객에게 발송 사실을 알렸으면 &ldquo;고객 통보 완료&rdquo;만 체크하세요. 송장번호·택배사는
+          알고 있을 때만 적으면 됩니다(선택). 통보를 체크하면 출고 예정 목록에서 빠지고, 세금계산서
+          발행이 끝난 프로젝트는 &ldquo;8. 배송일정 안내&rdquo;로 전환됩니다.
         </p>
 
         <div className="mb-1 flex items-center justify-between">
@@ -187,9 +191,19 @@ export function ProductionEditor({
           )}
         </div>
 
+        <label className="mb-3 flex cursor-pointer items-center gap-2 rounded-md border border-green-200 bg-green-50 px-3 py-2.5 text-sm font-medium text-green-800">
+          <input
+            type="checkbox"
+            className="h-4 w-4"
+            checked={draft.customerNotified}
+            onChange={(e) => set("customerNotified", e.target.checked)}
+          />
+          고객 통보 완료 (발송했다고 알림)
+        </label>
+
         <div className="mb-3 flex gap-2">
           <div className="flex-1">
-            <label className="mb-1 block text-xs font-medium text-neutral-700">택배사</label>
+            <label className="mb-1 block text-xs font-medium text-neutral-700">택배사 (선택)</label>
             <input
               className="w-full rounded-md border border-neutral-300 px-3 py-2 text-sm"
               value={draft.carrier}
@@ -198,7 +212,7 @@ export function ProductionEditor({
             />
           </div>
           <div className="flex-1">
-            <label className="mb-1 block text-xs font-medium text-neutral-700">송장번호</label>
+            <label className="mb-1 block text-xs font-medium text-neutral-700">송장번호 (선택)</label>
             <input
               className="w-full rounded-md border border-neutral-300 px-3 py-2 text-sm"
               value={draft.trackingNumber}
@@ -252,8 +266,13 @@ export function ProductionEditor({
                 <div className="flex items-center justify-between">
                   <span className="font-medium text-neutral-900">
                     {b.poNumber ?? "(발주서 미연결)"}
-                    {b.trackingNumber && (
+                    {b.customerNotifiedAt && (
                       <span className="ml-1.5 rounded-full bg-green-100 px-2 py-0.5 text-[10px] text-green-700">
+                        고객 통보 완료
+                      </span>
+                    )}
+                    {b.trackingNumber && (
+                      <span className="ml-1.5 rounded-full bg-neutral-100 px-2 py-0.5 text-[10px] text-neutral-600">
                         송장 등록됨
                       </span>
                     )}
@@ -266,17 +285,16 @@ export function ProductionEditor({
                   {b.supplierName || "공급업체 미입력"} · 발송요청일 {b.reqDate || "미입력"}
                 </p>
                 <p className="mt-1 text-xs text-neutral-500">
-                  {b.carrier || "택배사 미입력"} {b.trackingNumber ? `· ${b.trackingNumber}` : "· 송장번호 미입력"}
+                  {b.trackingNumber ? `${b.carrier || "택배사 미입력"} · ${b.trackingNumber}` : "송장번호 없음"}
                 </p>
               </button>
             ))}
           </div>
         )}
 
-        <h3 className="mb-2 text-sm font-semibold text-neutral-900">알림 로그</h3>
-        {notifications.length === 0 ? (
-          <p className="text-sm text-neutral-400">아직 생성된 알림이 없습니다.</p>
-        ) : (
+        {notifications.length > 0 && (
+          <>
+            <h3 className="mb-2 text-sm font-semibold text-neutral-900">알림 로그 (이전 기록)</h3>
           <div className="flex flex-col gap-2">
             {notifications.map((n) => (
               <div key={n.id} className="rounded-xl border border-neutral-200 bg-white p-3 text-sm">
@@ -292,6 +310,7 @@ export function ProductionEditor({
               </div>
             ))}
           </div>
+          </>
         )}
       </div>
     </div>

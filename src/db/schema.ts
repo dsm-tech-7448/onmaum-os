@@ -713,6 +713,9 @@ export const production = pgTable("production", {
   carrier: varchar("carrier", { length: 50 }), // 택배사
   trackingNumber: varchar("tracking_number", { length: 50 }), // 송장번호
   actualShipDate: date("actual_ship_date"), // 발송 확인일
+  // 고객에게 "발송됐다"고 통보했는지 체크한 시각(2026-11-17) — 알림톡/송장번호 입력이 현실적으로 어려워
+  // (공급업체가 늦게 알려줌) 통보 여부만 체크한다. 값이 있으면 송장번호가 없어도 "처리된" 발주로 본다.
+  customerNotifiedAt: timestamp("customer_notified_at", { withTimezone: true }),
 
   note: text("note"),
 

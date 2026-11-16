@@ -1,11 +1,10 @@
-"use server";
+﻿"use server";
 
 import { and, desc, eq, isNotNull } from "drizzle-orm";
 import { db } from "@/db";
-import { production, notificationLog, projects, customers, purchaseOrders } from "@/db/schema";
+import { production, notificationLog, purchaseOrders } from "@/db/schema";
 import { getSession } from "@/lib/auth/session";
 import { advanceProjectStage, assertProjectReachedStage } from "@/lib/projects/stage-transition";
-import { isAlimtalkConfigured, sendShippingAlimtalk } from "@/lib/popbill/kakao";
 import type {
   ImportablePurchaseOrder,
   ProductionDraft,
@@ -69,6 +68,7 @@ export async function listProduction(projectId: string): Promise<ProductionSumma
       carrier: production.carrier,
       trackingNumber: production.trackingNumber,
       actualShipDate: production.actualShipDate,
+      customerNotifiedAt: production.customerNotifiedAt,
       note: production.note,
       updatedAt: production.updatedAt,
       poNumber: purchaseOrders.poNumber,
@@ -89,6 +89,7 @@ export async function listProduction(projectId: string): Promise<ProductionSumma
     carrier: r.carrier,
     trackingNumber: r.trackingNumber,
     actualShipDate: r.actualShipDate,
+    customerNotifiedAt: r.customerNotifiedAt ? r.customerNotifiedAt.toISOString() : null,
     note: r.note,
     updatedAt: r.updatedAt.toISOString(),
   }));
@@ -114,7 +115,21 @@ export async function listNotifications(projectId: string): Promise<Notification
   }));
 }
 
-export type SaveProductionResult = { id: string; notified: boolean };
+
+export type SaveProductionResult = { id: string; notified: boolean; stageAdvanced: boolean };
+
+// 고객 통보를 체크했을 때 프로젝트를 "8. 배송일정 안내"로 넘긴다 — 단, 세금계산서 발행(7단계)이
+// 끝난 프로젝트만. 아직 거기까지 안 온 프로젝트는 통보 체크만 기록하고 단계는 건드리지 않는다
+// (안 그러면 대시보드의 세금계산서 발행 필요 등이 사라진다).
+async function advanceToShippingNotifiedIfReady(projectId: string, userId: string): Promise<boolean> {
+  try {
+    await assertProjectReachedStage(projectId, "tax_invoice_issued");
+  } catch {
+    return false;
+  }
+  const { advanced } = await advanceProjectStage(projectId, "shipping_notified", userId);
+  return advanced;
+}
 
 export async function saveProduction(
   projectId: string,
@@ -124,28 +139,19 @@ export async function saveProduction(
 
   if (!draft.poId) throw new Error("어느 발주서에 대한 배송인지 먼저 선택해주세요.");
 
-  const trackingNumber = draft.trackingNumber.trim();
-  const hasTracking = trackingNumber !== "";
-
   let existing: typeof production.$inferSelect | undefined;
   if (draft.id) {
     [existing] = await db.select().from(production).where(eq(production.id, draft.id)).limit(1);
   }
-  const hadTracking = !!existing?.trackingNumber?.trim();
-  // 송장번호가 "이번에 처음" 채워지는 경우에만 알림 생성 + 단계 전환 (멱등 — 다시 저장해도 중복 안됨).
-  const isNewlyTracked = hasTracking && !hadTracking;
-
-  if (isNewlyTracked) {
-    // 세금계산서 발행이 끝난 뒤에만 송장번호를 등록할 수 있다 (7. 세금계산서 발행 완료 이후).
-    await assertProjectReachedStage(projectId, "tax_invoice_issued");
-  }
+  const isNewlyNotified = draft.customerNotified && !existing?.customerNotifiedAt;
 
   const values = {
     projectId,
     poId: draft.poId,
     carrier: draft.carrier || null,
-    trackingNumber: trackingNumber || null,
+    trackingNumber: draft.trackingNumber.trim() || null,
     actualShipDate: draft.actualShipDate || null,
+    customerNotifiedAt: draft.customerNotified ? (existing?.customerNotifiedAt ?? new Date()) : null,
     note: draft.note || null,
     updatedAt: new Date(),
   };
@@ -162,56 +168,38 @@ export async function saveProduction(
     savedId = created.id;
   }
 
-  if (isNewlyTracked) {
-    const [project] = await db
-      .select({ projectNumber: projects.projectNumber, customerId: projects.customerId })
-      .from(projects)
-      .where(eq(projects.id, projectId))
-      .limit(1);
+  const stageAdvanced = isNewlyNotified ? await advanceToShippingNotifiedIfReady(projectId, session.userId) : false;
+  return { id: savedId, notified: isNewlyNotified, stageAdvanced };
+}
 
-    if (project) {
-      const [customer] = await db
-        .select({ companyName: customers.companyName, mobilePhone: customers.mobilePhone, contactName: customers.contactName })
-        .from(customers)
-        .where(eq(customers.id, project.customerId))
-        .limit(1);
+// 대시보드 "출고 예정" 목록에서 발주서 한 건의 고객 통보 여부를 바로 체크/해제한다 — 배송건이
+// 아직 없으면 만들고, 있으면 통보 시각만 갱신한다.
+export async function setPoCustomerNotified(poId: string, notified: boolean): Promise<{ ok: boolean; error?: string }> {
+  const session = await getSession();
+  if (!session) return { ok: false, error: "로그인이 필요합니다." };
 
-      const messageContent = `[${customer?.companyName ?? "고객"}] ${project.projectNumber} 주문하신 상품이 발송되었습니다. 택배사: ${
-        draft.carrier || "미정"
-      }, 송장번호: ${trackingNumber}`;
+  const [po] = await db
+    .select({ id: purchaseOrders.id, projectId: purchaseOrders.projectId })
+    .from(purchaseOrders)
+    .where(eq(purchaseOrders.id, poId))
+    .limit(1);
+  if (!po) return { ok: false, error: "발주서를 찾을 수 없습니다." };
 
-      // 알림톡 연동(2026-09-03 준비) — 팝빌 발신프로필/승인템플릿이 설정돼 있고 고객
-      // 휴대폰번호가 있으면 실제 발송을 시도한다. content는 카카오에 사전승인된 템플릿
-      // 문구와 정확히 일치해야 하므로, 실제 템플릿이 승인되면 위 messageContent 형식을
-      // 그 문구에 맞게 조정해야 한다. 미설정/번호 없음이면 지금까지처럼 로그만 남긴다.
-      let channel: "kakao" | "internal" = "internal";
-      let status: "pending" | "sent" | "failed" = "pending";
-      let sentAt: Date | null = null;
-      if (isAlimtalkConfigured() && customer?.mobilePhone) {
-        const sendResult = await sendShippingAlimtalk({
-          content: messageContent,
-          altContent: messageContent,
-          receiver: customer.mobilePhone,
-          receiverName: customer.contactName || customer.companyName || "고객",
-        });
-        channel = "kakao";
-        status = sendResult.ok ? "sent" : "failed";
-        sentAt = sendResult.ok ? new Date() : null;
-      }
-
-      await db.insert(notificationLog).values({
-        customerId: project.customerId,
-        projectId,
-        channel,
-        type: "배송일정안내",
-        messageContent,
-        status,
-        sentAt,
-      });
-    }
-
-    await advanceProjectStage(projectId, "shipping_notified", session.userId);
+  const [existing] = await db.select().from(production).where(eq(production.poId, poId)).limit(1);
+  const now = new Date();
+  if (existing) {
+    await db
+      .update(production)
+      .set({ customerNotifiedAt: notified ? (existing.customerNotifiedAt ?? now) : null, updatedAt: now })
+      .where(eq(production.id, existing.id));
+  } else if (notified) {
+    await db
+      .insert(production)
+      .values({ projectId: po.projectId, poId, customerNotifiedAt: now, createdBy: session.userId });
   }
 
-  return { id: savedId, notified: isNewlyTracked };
+  if (notified && !existing?.customerNotifiedAt) {
+    await advanceToShippingNotifiedIfReady(po.projectId, session.userId);
+  }
+  return { ok: true };
 }
