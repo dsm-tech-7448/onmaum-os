@@ -111,7 +111,31 @@ export function QuoteEditor({
     });
   }
 
+  // 저장 요청 크기 검사(2026-11-18) — Vercel은 요청 본문 4.5MB를 넘으면 서버 코드까지 오지도 않고
+  // "An unexpected response was received from the server."라는 알아볼 수 없는 오류만 낸다. 이미지가
+  // 여러 장이면 쉽게 넘으므로, 보내기 전에 크기를 재서 원인을 알려준다.
+  function checkPayloadSize(): string | null {
+    const bytes = new Blob([JSON.stringify(draft)]).size;
+    if (bytes <= 4_200_000) return null;
+    const imageCount =
+      (draft.mainImageDataUrl ? 1 : 0) +
+      [...draft.items, ...draft.tiers.flatMap((t) => t.items)].filter((it) => it.imageDataUrl).length;
+    return `저장할 내용이 너무 큽니다(약 ${(bytes / 1_000_000).toFixed(1)}MB, 한도 약 4.5MB). 첨부 이미지가 ${imageCount}장입니다 — 이미지를 줄이거나(필요한 것만 남기기) 일부를 삭제한 뒤 다시 저장해 주세요.`;
+  }
+  function explainSaveError(err: unknown, fallback: string): string {
+    const msg = err instanceof Error ? err.message : "";
+    if (msg.includes("unexpected response")) {
+      return "서버가 응답하지 못했습니다. 잠시 후 다시 저장해 보세요. 반복되면 페이지를 새로고침(내용은 먼저 복사) 하거나 개발 담당에게 알려주세요. (로그인이 만료됐거나 서버가 일시적으로 느린 경우일 수 있습니다.)";
+    }
+    return msg || fallback;
+  }
+
   async function handleSave() {
+    const tooBig = checkPayloadSize();
+    if (tooBig) {
+      setSaveError(tooBig);
+      return;
+    }
     setIsSaving(true);
     setSaveError("");
     try {
@@ -135,7 +159,7 @@ export function QuoteEditor({
       setQuoteList(list);
       router.refresh(); // 프로젝트 헤더의 단계 표시/목록 페이지 색상을 최신 상태로
     } catch (err) {
-      setSaveError(err instanceof Error ? err.message : "저장에 실패했습니다.");
+      setSaveError(explainSaveError(err, "저장에 실패했습니다."));
     } finally {
       setIsSaving(false);
     }
@@ -145,6 +169,11 @@ export function QuoteEditor({
   // 새로 추가된 줄은 저장 후 DB id를 받아야 다음 수정에서 중복 생성되지 않으므로 다시 불러온다.
   async function handleUpdate() {
     if (!draft.id) return;
+    const tooBig = checkPayloadSize();
+    if (tooBig) {
+      setSaveError(tooBig);
+      return;
+    }
     setIsUpdating(true);
     setSaveError("");
     setSaveHint("");
@@ -164,7 +193,7 @@ export function QuoteEditor({
       setQuoteList(list);
       router.refresh();
     } catch (err) {
-      setSaveError(err instanceof Error ? err.message : "수정 저장에 실패했습니다.");
+      setSaveError(explainSaveError(err, "수정 저장에 실패했습니다."));
     } finally {
       setIsUpdating(false);
     }
