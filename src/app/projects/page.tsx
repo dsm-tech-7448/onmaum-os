@@ -76,6 +76,10 @@ function projectSearchCondition(q: string) {
   return or(
     ilike(customers.companyName, like),
     ilike(projects.projectNumber, like),
+    // 고객 담당자(개인) 이름으로도 찾기(2026-11-18) — 견적서에 입력한 고객사명/담당자명(어느 리비전이든).
+    // 고객사 마스터의 담당자명(customers.contact_name)은 일부러 제외: 담당자가 자주 바뀌어 마스터엔
+    // 한 사람이 같은 고객사의 모든 프로젝트에 붙어 있어(예: 여주시정신건강복지센터 13건) 엉뚱한 건이 걸린다.
+    sql`exists (select 1 from ${quotes} where ${quotes.projectId} = ${projects.id} and (${quotes.customerName} ilike ${like} or ${quotes.contactName} ilike ${like}))`,
     sql`exists (select 1 from ${quotes} where ${quotes.projectId} = ${projects.id} and ${quotes.compareProductName} ilike ${like})`,
     sql`exists (select 1 from ${quotes} inner join ${quoteItems} on ${quoteItems.quoteId} = ${quotes.id} where ${quotes.projectId} = ${projects.id} and ${quoteItems.name} ilike ${like})`
   );
@@ -154,7 +158,7 @@ export default async function ProjectsPage({
             type="search"
             name="q"
             defaultValue={q}
-            placeholder="고객사명 · 상품명 · 프로젝트 번호로 찾기"
+            placeholder="고객사명 · 고객(담당자) 이름 · 상품명 · 프로젝트 번호로 찾기"
             className="w-full max-w-md rounded-md border border-neutral-300 bg-white px-3 py-2 text-sm outline-none focus:border-neutral-900"
           />
           <button type="submit" className="rounded-md bg-neutral-900 px-4 py-2 text-sm font-medium text-white hover:bg-neutral-700">
