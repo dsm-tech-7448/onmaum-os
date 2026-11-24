@@ -511,6 +511,7 @@ export function SummarySheetEditor({
                 <th rowSpan={2} className={thFrozen} style={frozenStyle(4)}>상품코드</th>
                 <th rowSpan={2} className={thFrozen} style={frozenStyle(5)}>상품명</th>
                 <th rowSpan={2} className={`${th} text-right`}>수량</th>
+                <th rowSpan={2} className={th}>프로젝트</th>
                 <th rowSpan={2} className={th}>납기</th>
                 <th rowSpan={2} className={th}>발송요청일</th>
                 <th rowSpan={2} className={th}>고객 요청사항</th>
@@ -534,7 +535,7 @@ export function SummarySheetEditor({
             <tbody>
               {visibleRows.length === 0 ? (
                 <tr>
-                  <td colSpan={21}className="px-3 py-6 text-center text-neutral-400">
+                  <td colSpan={22} className="px-3 py-6 text-center text-neutral-400">
                     {findTerms.length > 0 ? "찾는 내용과 일치하는 행이 없습니다." : "표시할 행이 없습니다."}
                   </td>
                 </tr>
@@ -668,6 +669,21 @@ export function SummarySheetEditor({
                         </div>
                       ) : (
                         r.qty || "-"
+                      )}
+                    </td>
+                    {/* 프로젝트 — 행을 확인하려고 프로젝트 화면으로 바로 들어가는 링크(2026-11-24).
+                        고객사명 칸은 편집 가능한 행에서 입력칸이라 링크를 달 수 없어 별도 열로 둔다. */}
+                    <td className="whitespace-nowrap px-2 py-1.5">
+                      {r.projectId ? (
+                        <Link
+                          href={`/projects/${r.projectId}`}
+                          className="font-mono text-xs text-blue-700 hover:underline"
+                          title="이 프로젝트 열기"
+                        >
+                          {r.projectNumber || "열기"} ↗
+                        </Link>
+                      ) : (
+                        "-"
                       )}
                     </td>
                     {/* 납기 — 발주서 발송요청일(공급업체용)과 무관한, 고객이 특별히 요청한 납품
