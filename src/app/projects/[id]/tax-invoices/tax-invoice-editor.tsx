@@ -246,7 +246,11 @@ export function TaxInvoiceEditor({
     setIsBusy(true);
     setSaveError("");
     try {
-      const result = await issueTaxInvoice(projectId, currentInvoiceId);
+      const result = await issueTaxInvoice(projectId, currentInvoiceId, draft);
+      if (!result.ok) {
+        setSaveError(result.error);
+        return;
+      }
       setCurrentStatus("issued");
       setSaveHint(
         result.popbill === "sent"

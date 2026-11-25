@@ -684,13 +684,78 @@ export type IssueTaxInvoiceResult = {
   popbillMessage?: string;
 };
 
-export async function issueTaxInvoice(projectId: string, invoiceId: string): Promise<IssueTaxInvoiceResult> {
+// 운영(production)에서는 서버 액션이 throw한 Error 메시지가 "Minified React error #441"로 가려져
+// 사용자가 원인을 알 수 없다(2026-11-25 발행 완료 처리에서 발생). 그래서 실패는 던지지 않고
+// { ok:false, error }로 돌려준다 — [[project_server_action_error_masking]].
+export type IssueTaxInvoiceOutcome = ({ ok: true } & IssueTaxInvoiceResult) | { ok: false; error: string };
+
+export async function issueTaxInvoice(
+  projectId: string,
+  invoiceId: string,
+  draft: TaxInvoiceDraft
+): Promise<IssueTaxInvoiceOutcome> {
+  try {
+    const result = await issueTaxInvoiceInner(projectId, invoiceId, draft);
+    return { ok: true, ...result };
+  } catch (err) {
+    const raw = err instanceof Error ? err.message : String(err);
+    console.error("[issueTaxInvoice] failed", invoiceId, err);
+    return { ok: false, error: raw.split(String.fromCharCode(10))[0].slice(0, 400) };
+  }
+}
+
+async function issueTaxInvoiceInner(
+  projectId: string,
+  invoiceId: string,
+  draft: TaxInvoiceDraft
+): Promise<IssueTaxInvoiceResult> {
   const session = await requireSession();
+
+  const [found] = await db
+    .select({ id: taxInvoices.id, status: taxInvoices.status })
+    .from(taxInvoices)
+    .where(and(eq(taxInvoices.id, invoiceId), invoiceInProject(projectId)))
+    .limit(1);
+  if (!found) throw new Error("세금계산서를 찾을 수 없습니다.");
+  // 이미 발행된 건을 다시 팝빌로 보내지 않는다(이중 발행 방지).
+  if (found.status === "issued") throw new Error("이미 발행 완료된 세금계산서입니다. 화면을 새로고침해 주세요.");
+
+  // 발행 요청 이후 화면에서 고친 공급받는자 정보(특히 사업자등록번호 — 사업자등록증을 받은 뒤 입력하는 경우)를
+  // 발행 직전에 DB에 반영한다. 예전엔 요청 시점 값만 저장돼 있어서, 요청 때 비워 두고 나중에 입력하면
+  // 화면에는 번호가 있는데 서버는 "없음"으로 보고 발행이 실패했다(2026-11-25).
+  const businessNumber = draft.customerBusinessNumber.trim();
+  await db
+    .update(taxInvoices)
+    .set({
+      customerName: draft.customerName.trim() || undefined,
+      customerBusinessNumber: businessNumber || null,
+      customerSubNum: draft.customerSubNum.trim() || null,
+      customerCeoName: draft.customerCeoName.trim() || null,
+      customerAddress: draft.customerAddress.trim() || null,
+      customerBusinessType: draft.customerBusinessType.trim() || null,
+      customerBusinessItem: draft.customerBusinessItem.trim() || null,
+      customerEmail: draft.customerEmail.trim() || null,
+      purposeType: draft.purposeType === "영수" ? "영수" : "청구",
+      scheduledDate: draft.scheduledDate || null,
+    })
+    .where(eq(taxInvoices.id, invoiceId));
+  // 연결된 거래명세서(묶은 것 포함)에도 등록번호/주소를 최신화 — 빈 값으로 기존 값을 덮어쓰지는 않는다.
+  const statementUpdate: { customerBusinessNumber?: string; customerAddress?: string } = {};
+  if (businessNumber) statementUpdate.customerBusinessNumber = businessNumber;
+  if (draft.customerAddress.trim()) statementUpdate.customerAddress = draft.customerAddress.trim();
+  if (Object.keys(statementUpdate).length > 0) {
+    await db.update(transactionStatements).set(statementUpdate).where(eq(transactionStatements.taxInvoiceId, invoiceId));
+  }
+  try {
+    await savePartnerFromInvoice(draft);
+  } catch (err) {
+    console.error("세금계산서 거래처 기준정보 저장 실패", err);
+  }
 
   const [row] = await db
     .select({ id: taxInvoices.id, customerBusinessNumber: taxInvoices.customerBusinessNumber })
     .from(taxInvoices)
-    .where(and(eq(taxInvoices.id, invoiceId), invoiceInProject(projectId)))
+    .where(eq(taxInvoices.id, invoiceId))
     .limit(1);
   if (!row) throw new Error("세금계산서를 찾을 수 없습니다.");
   // 사업자등록번호 없이는 실제로 세금계산서를 발행할 수 없다 — 사업자등록증을 받은 뒤
