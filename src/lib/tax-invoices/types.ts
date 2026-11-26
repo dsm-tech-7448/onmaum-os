@@ -74,6 +74,8 @@ export type TaxInvoiceSummary = {
   confirmedAt: string | null;
   issuedAt: string | null;
   itemCount: number;
+  // 연결된 거래명세서에 카드 결제/현금영수증이 있어 발행하면 안 되는 사유(없으면 null).
+  blockReason: string | null;
 };
 
 export type ImportableStatement = {
@@ -82,8 +84,8 @@ export type ImportableStatement = {
   customerName: string;
   statementDate: string;
   itemCount: number;
-  // 현금영수증 발행일 — 값이 있으면 이미 현금영수증으로 증빙된 거래라 세금계산서를 발행하지 않는다.
-  cashReceiptIssuedAt: string | null;
+  // 카드 결제 또는 현금영수증으로 이미 증빙된 거래면 그 사유 — 값이 있으면 세금계산서를 발행하지 않는다.
+  blockReason: string | null;
 };
 
 // 세금계산서 거래처 기준정보(tax_invoice_partners) 한 건 — 공급받는자 사업자 정보 자동 채움용.

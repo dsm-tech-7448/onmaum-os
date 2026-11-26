@@ -189,6 +189,9 @@ export function TaxInvoiceEditor({
     }
   }
 
+  // 열어 둔 세금계산서의 거래명세서에 카드 결제/현금영수증이 있으면 확인·발행 버튼을 막는다.
+  const blockReason = invoices.find((i) => i.id === currentInvoiceId)?.blockReason ?? null;
+
   async function refreshLists() {
     const [nextStatements, nextInvoices] = await Promise.all([
       listImportableStatements(projectId),
@@ -371,12 +374,12 @@ export function TaxInvoiceEditor({
                     <span className="font-bold text-[#8E1F3B]">{s.statementNumber}</span> {s.customerName} · 품목{" "}
                     {s.itemCount}개
                   </span>
-                  {s.cashReceiptIssuedAt ? (
+                  {s.blockReason ? (
                     <span
                       className="rounded bg-neutral-100 px-2 py-0.5 text-[11px] text-neutral-500"
-                      title="현금영수증을 이미 발행한 거래라 세금계산서를 발행하지 않습니다. 세금계산서가 필요하면 거래명세서 화면에서 현금영수증 발행일을 먼저 지우세요."
+                      title="카드 결제 또는 현금영수증으로 이미 증빙된 거래라 세금계산서를 발행하지 않습니다. 입력이 잘못됐다면 거래명세서 화면에서 먼저 지우세요."
                     >
-                      현금영수증 발행됨 ({s.cashReceiptIssuedAt}) · 세금계산서 불필요
+                      {s.blockReason} · 세금계산서 불필요
                     </span>
                   ) : (
                     <button
@@ -632,11 +635,14 @@ export function TaxInvoiceEditor({
         ) : (
           <div className="mb-1 flex flex-col gap-2">
             <p className="text-xs font-medium text-neutral-700">현재 상태: {STATUS_TEXT[currentStatus]}</p>
+            {blockReason && currentStatus !== "issued" && (
+              <p className="text-[11px] text-red-600">{blockReason} — 이미 증빙된 거래라 세금계산서를 발행할 수 없습니다.</p>
+            )}
             {currentStatus === "requested" && (
               <button
                 type="button"
                 onClick={handleConfirm}
-                disabled={isBusy}
+                disabled={isBusy || !!blockReason}
                 className="w-full rounded-md bg-[#2563eb] px-3 py-2 text-sm font-bold text-white disabled:opacity-50"
               >
                 {isBusy ? "처리 중..." : "2️⃣ 확인 처리"}
@@ -647,7 +653,7 @@ export function TaxInvoiceEditor({
                 <button
                   type="button"
                   onClick={handleIssue}
-                  disabled={isBusy || !draft.customerBusinessNumber.trim()}
+                  disabled={isBusy || !draft.customerBusinessNumber.trim() || !!blockReason}
                   className="w-full rounded-md bg-[#8E1F3B] px-3 py-2 text-sm font-bold text-white disabled:opacity-50"
                 >
                   {isBusy ? "처리 중..." : "3️⃣ 발행 완료 처리"}

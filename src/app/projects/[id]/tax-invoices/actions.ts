@@ -22,6 +22,7 @@ import {
 import { issueTaxInvoiceViaPopbill, sendTaxInvoiceEmailViaPopbill } from "@/lib/popbill/tax-invoice";
 import { isPopbillConfigured } from "@/lib/popbill/client";
 import { applyStatementAdjustment, mergeToSingleItem } from "@/lib/tax-invoices/merge-items";
+import { isCardPaid, receiptBlockReason } from "@/lib/tax-invoices/receipt-block";
 import type {
   BundleStatementCandidate,
   ImportableStatement,
@@ -99,7 +100,7 @@ export async function listImportableStatements(projectId: string): Promise<Impor
       customerName: s.customerName,
       statementDate: s.statementDate,
       itemCount: countMap.get(s.id) ?? 0,
-      cashReceiptIssuedAt: s.cashReceiptIssuedAt ?? null,
+      blockReason: receiptBlockReason(s),
     }));
 }
 
@@ -210,6 +211,7 @@ export async function listBundleCandidateStatements(primaryStatementId: string):
       customerName: transactionStatements.customerName,
       statementDate: transactionStatements.statementDate,
       cashReceiptIssuedAt: transactionStatements.cashReceiptIssuedAt,
+      paidCard: transactionStatements.paidCard,
       projectNumber: projects.projectNumber,
       projectCustomerId: projects.customerId,
       stageSortOrder: projectStages.sortOrder,
@@ -223,7 +225,7 @@ export async function listBundleCandidateStatements(primaryStatementId: string):
   const targetKey = normalizeName(primary.customerName);
   const candidates = rows.filter(
     (r) =>
-      !r.cashReceiptIssuedAt &&
+      !receiptBlockReason(r) &&
       (r.projectCustomerId === primary.customerId || normalizeName(r.customerName) === targetKey) &&
       (requiredStage ? (r.stageSortOrder ?? 0) >= requiredStage.sortOrder : true)
   );
@@ -267,6 +269,28 @@ function toStatus(value: string): TaxInvoiceStatus {
   return value === "confirmed" || value === "issued" ? value : "requested";
 }
 
+// 세금계산서에 연결된 거래명세서(묶은 것 포함) 중 카드 결제/현금영수증이 있으면 "명세서번호 사유"를 모은다.
+async function getInvoiceBlockReasons(invoiceIds: string[]): Promise<Map<string, string>> {
+  const linked = await db
+    .select({
+      taxInvoiceId: transactionStatements.taxInvoiceId,
+      statementNumber: transactionStatements.statementNumber,
+      paidCard: transactionStatements.paidCard,
+      cashReceiptIssuedAt: transactionStatements.cashReceiptIssuedAt,
+    })
+    .from(transactionStatements)
+    .where(inArray(transactionStatements.taxInvoiceId, invoiceIds));
+  const result = new Map<string, string>();
+  for (const s of linked) {
+    const reason = receiptBlockReason(s);
+    if (!reason || !s.taxInvoiceId) continue;
+    const text = `${s.statementNumber} ${reason}`;
+    const prev = result.get(s.taxInvoiceId);
+    result.set(s.taxInvoiceId, prev ? `${prev}, ${text}` : text);
+  }
+  return result;
+}
+
 export async function listTaxInvoices(projectId: string): Promise<TaxInvoiceSummary[]> {
   await requireSession();
 
@@ -289,6 +313,7 @@ export async function listTaxInvoices(projectId: string): Promise<TaxInvoiceSumm
     )
     .groupBy(taxInvoiceItems.taxInvoiceId);
   const countMap = new Map(itemCounts.map((c) => [c.taxInvoiceId, c.count]));
+  const blockMap = await getInvoiceBlockReasons(rows.map((r) => r.id));
 
   return rows.map((r) => ({
     id: r.id,
@@ -300,6 +325,7 @@ export async function listTaxInvoices(projectId: string): Promise<TaxInvoiceSumm
     confirmedAt: r.confirmedAt ? r.confirmedAt.toISOString() : null,
     issuedAt: r.issuedAt ? r.issuedAt.toISOString() : null,
     itemCount: countMap.get(r.id) ?? 0,
+    blockReason: blockMap.get(r.id) ?? null,
   }));
 }
 
@@ -525,6 +551,7 @@ async function requestTaxInvoiceImpl(
   const [linkedStatement] = await db
     .select({
       cashReceiptIssuedAt: transactionStatements.cashReceiptIssuedAt,
+      paidCard: transactionStatements.paidCard,
       statementNumber: transactionStatements.statementNumber,
       taxInvoiceId: transactionStatements.taxInvoiceId,
       customerName: transactionStatements.customerName,
@@ -534,6 +561,11 @@ async function requestTaxInvoiceImpl(
     .innerJoin(projects, eq(transactionStatements.projectId, projects.id))
     .where(eq(transactionStatements.id, draft.statementId))
     .limit(1);
+  if (linkedStatement && isCardPaid(linkedStatement.paidCard)) {
+    throw new Error(
+      `${linkedStatement.statementNumber}은 카드 결제 건이라 세금계산서를 발행할 수 없습니다(카드 매출전표가 영수증을 대신합니다). 카드 입력이 잘못됐다면 거래명세서 화면에서 카드 결제액을 먼저 지워주세요.`
+    );
+  }
   if (linkedStatement?.cashReceiptIssuedAt) {
     throw new Error(
       `${linkedStatement.statementNumber}은 현금영수증이 이미 발행된 거래(${linkedStatement.cashReceiptIssuedAt})라 세금계산서를 발행할 수 없습니다. 세금계산서로 바꿔야 한다면 거래명세서 화면에서 현금영수증 발행일을 먼저 지워주세요.`
@@ -556,6 +588,7 @@ async function requestTaxInvoiceImpl(
         statementNumber: transactionStatements.statementNumber,
         taxInvoiceId: transactionStatements.taxInvoiceId,
         cashReceiptIssuedAt: transactionStatements.cashReceiptIssuedAt,
+        paidCard: transactionStatements.paidCard,
         customerName: transactionStatements.customerName,
         projectId: transactionStatements.projectId,
         customerId: projects.customerId,
@@ -568,6 +601,9 @@ async function requestTaxInvoiceImpl(
     }
     for (const b of bundledRows) {
       if (b.taxInvoiceId) throw new Error(`${b.statementNumber}은 이미 다른 세금계산서에 연결돼 있습니다.`);
+      if (isCardPaid(b.paidCard)) {
+        throw new Error(`${b.statementNumber}은 카드 결제 건이라 세금계산서에 묶을 수 없습니다.`);
+      }
       if (b.cashReceiptIssuedAt) {
         throw new Error(`${b.statementNumber}은 현금영수증이 이미 발행된 거래라 세금계산서에 묶을 수 없습니다.`);
       }
@@ -719,6 +755,9 @@ async function issueTaxInvoiceInner(
   if (!found) throw new Error("세금계산서를 찾을 수 없습니다.");
   // 이미 발행된 건을 다시 팝빌로 보내지 않는다(이중 발행 방지).
   if (found.status === "issued") throw new Error("이미 발행 완료된 세금계산서입니다. 화면을 새로고침해 주세요.");
+  // 발행 요청 뒤에 카드 결제/현금영수증이 입력된 경우도 막는다.
+  const blockReason = (await getInvoiceBlockReasons([invoiceId])).get(invoiceId);
+  if (blockReason) throw new Error(`이미 다른 증빙이 있어 세금계산서를 발행할 수 없습니다: ${blockReason}`);
 
   // 발행 요청 이후 화면에서 고친 공급받는자 정보(특히 사업자등록번호 — 사업자등록증을 받은 뒤 입력하는 경우)를
   // 발행 직전에 DB에 반영한다. 예전엔 요청 시점 값만 저장돼 있어서, 요청 때 비워 두고 나중에 입력하면
