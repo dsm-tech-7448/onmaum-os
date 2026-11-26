@@ -53,6 +53,10 @@ export type SummaryRow = {
   supplierPhone: string; // 공급업체 연락처
   shipDate: string; // 출고날짜(발송일) (production.actualShipDate)
   outAmount: string; // 출금 (공급업체에 입금)
+  // 받을 돈/줄 돈(부가세 포함, 문서 합계와 같은 계산) — 화면에서 미수·미지급 표시에 쓴다(2026-11-26).
+  // receivableAmount: 거래명세서가 있으면 그 명세서 합계(입금은 명세서 단위), 없으면 이 행 몫의 견적금액.
+  receivableAmount: number | null;
+  poAmount: number | null; // 이 행 발주서(poId)의 발주금액 합계(출금은 발주서 단위)
   revenue: number | null; // 매출 (매칭된 statement_items 공급가 합)
   cost: number | null; // 매입 (매칭된 po_items 합) — 발주 없으면 null(0 아님, "모른다"는 뜻)
   profit: number | null; // 매출이익금
@@ -60,6 +64,16 @@ export type SummaryRow = {
   overriddenFields: string[]; // summary_overrides로 원본 값을 덮어쓴 필드 이름들 (UI 표시용)
   isHistorical: boolean; // historical_orders(과거 Daily Summary 엑셀 이관) 출처 행 — 연결된 프로젝트/문서가 없어 읽기 전용.
 };
+
+type AmountLine = { qty: string | null; price: string | null; supplyOverride: string | null };
+function lineSupply(l: AmountLine): number {
+  return l.supplyOverride != null ? Number(l.supplyOverride) : Number(l.qty ?? 0) * Number(l.price ?? 0);
+}
+// 견적서·거래명세서 미리보기와 같은 합계 규칙: 줄마다 공급가 + 줄마다 반올림한 부가세, 마지막에 절삭/조정.
+function documentTotal(lines: AmountLine[], adjustment: string | null): number {
+  const sum = lines.reduce((s, l) => s + lineSupply(l) + Math.round(lineSupply(l) * 0.1), 0);
+  return Math.round(sum + (Number(adjustment ?? 0) || 0));
+}
 
 // includeHistorical: historical_orders(과거 Daily Summary 엑셀 이관, 3천여 건)를 포함할지 —
 // 대시보드 요약/주간·월간 실적(getDashboardSummary)은 매 페이지 로드마다 호출되고, 과거
@@ -78,6 +92,7 @@ export async function getSummaryRows(options?: { includeHistorical?: boolean }):
       customerName: quotes.customerName,
       contactName: quotes.contactName,
       contactPhone: quotes.contactPhone,
+      adjustmentAmount: quotes.adjustmentAmount,
     })
     .from(quotes);
 
@@ -102,6 +117,9 @@ export async function getSummaryRows(options?: { includeHistorical?: boolean }):
       name: quoteItems.name,
       qty: quoteItems.qty,
       lineType: quoteItems.lineType,
+      price: quoteItems.price,
+      supplyOverride: quoteItems.supplyOverride,
+      tierId: quoteItems.tierId,
     })
     .from(quoteItems)
     .where(inArray(quoteItems.quoteId, quoteIds));
@@ -109,6 +127,19 @@ export async function getSummaryRows(options?: { includeHistorical?: boolean }):
   if (items.length === 0) return [];
 
   const quoteItemIds = items.map((it) => it.id);
+
+  // 품목 행별 견적금액(부가세 포함) — 견적서 합계(옵션·절삭 포함)를 품목 줄 금액 비중대로 나눈다.
+  // 비교견적(수량 구간, tierId 있음)은 어느 구간이 확정인지 알 수 없어 계산하지 않는다.
+  const quoteAmountByItemId = new Map<string, number>();
+  for (const q of latestQuotes) {
+    const lines = itemRows.filter((r) => r.quoteId === q.id);
+    if (lines.some((l) => l.tierId)) continue;
+    const total = documentTotal(lines, q.adjustmentAmount);
+    const productLines = lines.filter((l) => l.lineType === "product");
+    const productSum = productLines.reduce((sum, l) => sum + lineSupply(l), 0);
+    if (productSum <= 0) continue;
+    for (const l of productLines) quoteAmountByItemId.set(l.id, Math.round((lineSupply(l) / productSum) * total));
+  }
 
   // 3. 발주서 — po_items.quote_item_id(품목 줄 단위)로 매칭한다. 한 발주서에 같은
   // 공급업체로 보내는 여러 견적 품목을 함께 담을 수 있어서(2026-09-15, "동일 공급업체인
@@ -165,10 +196,12 @@ export async function getSummaryRows(options?: { includeHistorical?: boolean }):
     return l.supplyOverride != null ? Number(l.supplyOverride) : Number(l.qty ?? 0) * Number(l.price ?? 0);
   }
   const costByPoId = new Map<string, number>();
+  const poTotalByPoId = new Map<string, number>(); // 부가세 포함(발주서 합계)
   const namesByPoId = new Map<string, string[]>();
   const poItemsByPoId = new Map<string, (typeof poItemRows)[number][]>();
   for (const it of poItemRows) {
     costByPoId.set(it.poId, (costByPoId.get(it.poId) ?? 0) + poLineAmount(it));
+    poTotalByPoId.set(it.poId, (poTotalByPoId.get(it.poId) ?? 0) + poLineAmount(it) + Math.round(poLineAmount(it) * 0.1));
     const names = namesByPoId.get(it.poId) ?? [];
     names.push(it.name);
     namesByPoId.set(it.poId, names);
@@ -413,11 +446,14 @@ export async function getSummaryRows(options?: { includeHistorical?: boolean }):
           paidCard: transactionStatements.paidCard,
           paidDate: transactionStatements.paidDate,
           cashReceiptIssuedAt: transactionStatements.cashReceiptIssuedAt,
+          adjustmentAmount: transactionStatements.adjustmentAmount,
         })
         .from(transactionStatements)
         .where(inArray(transactionStatements.id, allStatementIds))
     : [];
   const statementById = new Map(statementRows.map((s) => [s.id, s]));
+  const statementTotal = (statementId: string): number =>
+    documentTotal(itemsByStatementId.get(statementId) ?? [], statementById.get(statementId)?.adjustmentAmount ?? null);
 
   // 거래명세서 → 세금계산서 연결은 transaction_statements.tax_invoice_id로 본다 — 같은 고객의 여러 프로젝트
   // 거래명세서를 세금계산서 한 장에 묶은 경우(2026-11-11) 대표 명세서(tax_invoices.statement_id)뿐 아니라 묶인
@@ -544,6 +580,8 @@ export async function getSummaryRows(options?: { includeHistorical?: boolean }):
         supplierPhone: po?.supplierPhone ?? "",
         shipDate: po ? (shipDateByPoId.get(po.id) ?? "") : "",
         outAmount: po?.paidAmount ?? "",
+        receivableAmount: match ? statementTotal(match.statementId) : (quoteAmountByItemId.get(it.id) ?? null),
+        poAmount: po ? (poTotalByPoId.get(po.id) ?? null) : null,
         revenue,
         cost,
         profit,
@@ -586,6 +624,8 @@ export async function getSummaryRows(options?: { includeHistorical?: boolean }):
             supplierPhone: xpo.supplierPhone ?? "",
             shipDate: shipDateByPoId.get(extraPoId) ?? "",
             outAmount: xpo.paidAmount ?? "",
+            receivableAmount: null,
+            poAmount: poTotalByPoId.get(extraPoId) ?? null,
             revenue: null,
             cost: null,
             profit: null,
@@ -640,6 +680,8 @@ export async function getSummaryRows(options?: { includeHistorical?: boolean }):
       supplierPhone: po.supplierPhone ?? "",
       shipDate: shipDateByPoId.get(po.id) ?? "",
       outAmount: po.paidAmount ?? "",
+      receivableAmount: null,
+      poAmount: poTotalByPoId.get(po.id) ?? null,
       revenue: null,
       cost,
       profit: null,
@@ -685,6 +727,8 @@ export async function getSummaryRows(options?: { includeHistorical?: boolean }):
       supplierPhone: "",
       shipDate: "",
       outAmount: "",
+      receivableAmount: statement ? statementTotal(r.statementId) : null,
+      poAmount: null,
       revenue,
       cost: null,
       profit: null,
@@ -738,6 +782,8 @@ export async function getSummaryRows(options?: { includeHistorical?: boolean }):
           supplierPhone: h.supplierPhone ?? "",
           shipDate: h.shipDate ?? "",
           outAmount: h.cost ?? "",
+          receivableAmount: null,
+          poAmount: null,
           revenue,
           cost,
           profit,

@@ -37,10 +37,14 @@ function AmountInput({
   value,
   onChange,
   className,
+  placeholder,
+  title,
 }: {
   value: string;
   onChange: (raw: string) => void;
   className: string;
+  placeholder?: string;
+  title?: string;
 }) {
   const n = Number(value);
   const shown = value === "" || value === "-" || !Number.isFinite(n) ? value : n.toLocaleString("ko-KR");
@@ -50,9 +54,46 @@ function AmountInput({
       inputMode="numeric"
       className={`${className} text-right`}
       value={shown}
+      placeholder={placeholder}
+      title={title}
       onChange={(e) => onChange(e.target.value.replace(/[^\d-]/g, "").replace(/(?!^)-/g, ""))}
     />
   );
+}
+
+// 미수/미지급/영수증 미발행 표시(2026-11-26).
+// unpaid: 한 푼도 안 들어옴/안 나감(빨강), partial: 금액이 모자람(주황), none: 표시 없음(완료 또는 대상 아님).
+type PayState = "unpaid" | "partial" | "none";
+const PAY_TOLERANCE = 1000; // 1,000원 미만 차이(원 단위 절사 등)는 완납으로 본다.
+function payState(paid: number, due: number | null): PayState {
+  if (due != null && due <= 0) return "none";
+  if (paid <= 0) return "unpaid";
+  return due != null && due - paid >= PAY_TOLERANCE ? "partial" : "none";
+}
+function num(v: string): number {
+  return Number(String(v || "").replace(/,/g, "")) || 0;
+}
+// 발주한 건(견적 품목 + 발주서) 또는 거래명세서가 있는 건만 고객 입금/영수증을 따진다. 구성품 발주 줄·과거 이력은 제외.
+function isBillable(r: SummaryRow): boolean {
+  return !r.isHistorical && (!!r.statementId || (!!r.quoteItemId && !!r.poId));
+}
+function customerPayState(r: SummaryRow): PayState {
+  return isBillable(r) ? payState(num(r.paidCash) + num(r.paidCard), r.receivableAmount) : "none";
+}
+// 공급처는 "출금 안 함"만 표시한다 — 실제 지급액이 발주금액과 다른 경우(할인·절사 등)가 흔해 부분 지급 판정은 하지 않는다.
+function supplierPayState(r: SummaryRow): PayState {
+  if (r.isHistorical || !r.poId || r.poAmount === 0) return "none";
+  return num(r.outAmount) > 0 ? "none" : "unpaid";
+}
+function receiptMissing(r: SummaryRow): boolean {
+  return isBillable(r) && !r.taxInvoiceIssuedAt && !r.cashReceiptIssuedAt && num(r.paidCard) === 0;
+}
+const RECEIVABLE_BOX = "border-red-400 bg-red-50 placeholder:font-semibold placeholder:text-red-600";
+const PARTIAL_BOX = "border-orange-400 bg-orange-100";
+const PAYABLE_BOX = "border-violet-400 bg-violet-50 placeholder:font-semibold placeholder:text-violet-700";
+const NO_RECEIPT_BOX = "border-sky-500 bg-sky-100";
+function amountText(v: number | null): string {
+  return v == null ? "" : Math.round(v).toLocaleString("ko-KR");
 }
 
 function pct(v: number | null): string {
@@ -163,7 +204,12 @@ export function SummarySheetEditor({
     setSavingKey(`out-${row.rowKey}`);
     try {
       await recordSupplierPayment(row.projectId, row.poId, row._outAmountDraft, today());
-      setRows((rs) => rs.map((r) => (r.rowKey === row.rowKey ? { ...r, outAmount: row._outAmountDraft } : r)));
+      // 출금은 발주서 단위 — 같은 발주서를 쓰는 행을 모두 갱신해야 색 표시가 어긋나지 않는다.
+      setRows((rs) =>
+        rs.map((r) =>
+          r.poId === row.poId ? { ...r, outAmount: row._outAmountDraft, _outAmountDraft: row._outAmountDraft } : r
+        )
+      );
       router.refresh();
     } finally {
       setSavingKey(null);
@@ -177,7 +223,15 @@ export function SummarySheetEditor({
       await recordCustomerPayment(row.projectId, row.statementId, row._paidCashDraft, row._paidCardDraft, today());
       setRows((rs) =>
         rs.map((r) =>
-          r.rowKey === row.rowKey ? { ...r, paidCash: row._paidCashDraft, paidCard: row._paidCardDraft } : r
+          r.statementId === row.statementId
+            ? {
+                ...r,
+                paidCash: row._paidCashDraft,
+                paidCard: row._paidCardDraft,
+                _paidCashDraft: row._paidCashDraft,
+                _paidCardDraft: row._paidCardDraft,
+              }
+            : r
         )
       );
       router.refresh();
@@ -192,7 +246,11 @@ export function SummarySheetEditor({
     try {
       await markCashReceiptIssued(row.projectId, row.statementId, row._cashReceiptDraft);
       setRows((rs) =>
-        rs.map((r) => (r.rowKey === row.rowKey ? { ...r, cashReceiptIssuedAt: row._cashReceiptDraft } : r))
+        rs.map((r) =>
+          r.statementId === row.statementId
+            ? { ...r, cashReceiptIssuedAt: row._cashReceiptDraft, _cashReceiptDraft: row._cashReceiptDraft }
+            : r
+        )
       );
       router.refresh();
     } finally {
@@ -426,6 +484,16 @@ export function SummarySheetEditor({
     return `sticky z-10 px-2 py-1.5 truncate ${r.isHistorical ? "bg-neutral-50" : "bg-white"}`;
   }
   const inputCls = "rounded border border-neutral-300 px-1.5 py-1";
+  // 색을 입힐 땐 inputCls(회색 테두리)를 섞지 않는다 — Tailwind는 클래스 순서로 우선순위가 정해지지 않는다.
+  function payBoxCls(state: PayState, unpaidColor: string): string {
+    if (state === "none") return inputCls;
+    return `rounded border px-1.5 py-1 ${state === "partial" ? PARTIAL_BOX : unpaidColor}`;
+  }
+  function payTitle(label: string, state: PayState, due: number | null): string | undefined {
+    if (due == null) return undefined;
+    const suffix = state === "unpaid" ? " · 아직 기록 없음" : state === "partial" ? " · 일부만 입금됨" : "";
+    return `${label} ${amountText(due)}원(부가세 포함)${suffix}`;
+  }
   const saveBtnCls = "shrink-0 rounded bg-neutral-700 px-1.5 py-1 text-white disabled:opacity-50";
   // 정정된(원본과 다른) 값은 노란 배경으로 표시 — 어떤 칸이 견적서/발주서 원본과 달라졌는지
   // 한눈에 구분하기 위함.
@@ -455,6 +523,13 @@ export function SummarySheetEditor({
             표시되고, 실제 견적서·발주서 원본(고객·공급업체에 보낸 문서)은 바뀌지 않습니다 — Summary 화면에
             보이는 값만 정정됩니다. 발송요청일이 <span className="rounded bg-red-100 px-1 text-red-700">오늘</span>인데
             아직 출고날짜가 없는 건은 발송요청일 칸이 붉게 표시됩니다.
+          </p>
+          <p className="mt-1 flex flex-wrap items-center gap-2 text-xs text-neutral-500">
+            <span className={`rounded border px-1.5 py-0.5 ${RECEIVABLE_BOX} text-red-700`}>고객 미수</span>
+            <span className={`rounded border px-1.5 py-0.5 ${PAYABLE_BOX} text-violet-800`}>공급처 미지급</span>
+            <span className={`rounded border px-1.5 py-0.5 ${PARTIAL_BOX} text-orange-800`}>고객 일부 입금</span>
+            <span className={`rounded border px-1.5 py-0.5 ${NO_RECEIPT_BOX} text-sky-800`}>영수증 미발행</span>
+            <span>— 빈 칸의 흐린 숫자는 받을·줄 금액(부가세 포함) 안내이며, 직접 입력하고 저장해야 입금으로 기록됩니다.</span>
           </p>
         </div>
 
@@ -777,10 +852,19 @@ export function SummarySheetEditor({
                     <td className="px-2 py-1.5">
                       {r.statementId ? (
                         <AmountInput
-                          className={`${inputCls} w-24`}
+                          className={`${payBoxCls(customerPayState(r), RECEIVABLE_BOX)} w-24`}
                           value={r._paidCashDraft}
                           onChange={(v) => updateDraft(r.rowKey, "_paidCashDraft", v)}
+                          placeholder={customerPayState(r) === "unpaid" ? amountText(r.receivableAmount) : undefined}
+                          title={payTitle("받을 금액", customerPayState(r), r.receivableAmount)}
                         />
+                      ) : customerPayState(r) !== "none" ? (
+                        <div
+                          className={`rounded border px-1.5 py-1 text-right font-semibold text-red-600 ${RECEIVABLE_BOX} w-24`}
+                          title="미수 — 거래명세서를 만들면 이 칸에서 입금을 입력할 수 있습니다."
+                        >
+                          {amountText(r.receivableAmount) || "미수"}
+                        </div>
                       ) : (
                         "-"
                       )}
@@ -789,9 +873,10 @@ export function SummarySheetEditor({
                       {r.statementId ? (
                         <div className="flex items-center gap-1">
                           <AmountInput
-                            className={`${inputCls} w-24`}
+                            className={`${payBoxCls(customerPayState(r), RECEIVABLE_BOX)} w-24`}
                             value={r._paidCardDraft}
                             onChange={(v) => updateDraft(r.rowKey, "_paidCardDraft", v)}
+                            title={payTitle("받을 금액", customerPayState(r), r.receivableAmount)}
                           />
                           <button
                             type="button"
@@ -807,13 +892,28 @@ export function SummarySheetEditor({
                       )}
                     </td>
 
-                    <td className="px-2 py-1.5 text-neutral-600">{r.taxInvoiceIssuedAt || "-"}</td>
+                    <td className="px-2 py-1.5 text-neutral-600">
+                      {r.taxInvoiceIssuedAt ? (
+                        r.taxInvoiceIssuedAt
+                      ) : receiptMissing(r) ? (
+                        <Link
+                          href={`/projects/${r.projectId}/tax-invoices`}
+                          className={`inline-block rounded border px-1.5 py-1 text-sky-800 hover:underline ${NO_RECEIPT_BOX}`}
+                          title="영수증 미발행 — 세금계산서 화면 열기"
+                        >
+                          미발행
+                        </Link>
+                      ) : (
+                        "-"
+                      )}
+                    </td>
                     <td className="px-2 py-1.5">
                       {r.statementId ? (
                         <div className="flex items-center gap-1">
                           <input
                             type="date"
-                            className={`${inputCls} w-28`}
+                            className={`${receiptMissing(r) ? `rounded border px-1.5 py-1 ${NO_RECEIPT_BOX}` : inputCls} w-28`}
+                            title={receiptMissing(r) ? "영수증 미발행(세금계산서·현금영수증·카드 모두 없음)" : undefined}
                             value={r._cashReceiptDraft}
                             onChange={(e) => updateDraft(r.rowKey, "_cashReceiptDraft", e.target.value)}
                           />
@@ -899,9 +999,11 @@ export function SummarySheetEditor({
                       {r.poId ? (
                         <div className="flex items-center gap-1">
                           <AmountInput
-                            className={`${inputCls} w-24`}
+                            className={`${payBoxCls(supplierPayState(r), PAYABLE_BOX)} w-24`}
                             value={r._outAmountDraft}
                             onChange={(v) => updateDraft(r.rowKey, "_outAmountDraft", v)}
+                            placeholder={supplierPayState(r) === "unpaid" ? amountText(r.poAmount) : undefined}
+                            title={payTitle("발주금액", supplierPayState(r), r.poAmount)}
                           />
                           <button
                             type="button"
